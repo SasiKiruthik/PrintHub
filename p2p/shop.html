@@ -1,0 +1,164 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>P2P Secure Print (Shop)</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:20px;color:#111;background:#f3f7ff}
+    textarea{width:100%;height:120px}
+    .box{border:1px solid #ddd;padding:12px;border-radius:8px;background:#fff}
+  </style>
+</head>
+<body>
+  <h1>P2P Secure Print — Shop</h1>
+  <p>This page receives ciphertext directly from the user via a WebRTC DataChannel.
+     Keys are derived via ECDH and decryption happens only in memory.</p>
+
+  <h2>1) WebRTC Signaling</h2>
+  <div class="box">
+    <p>If the User created an Offer, paste it below and click <em>Set Offer</em>.
+       Then copy the Answer SDP and give it back to the User.</p>
+    <label>Paste Offer SDP from user:</label>
+    <textarea id="remoteSDP"></textarea>
+    <button id="setOffer">Set Offer & create Answer</button>
+    <label>Local SDP (copy back to user):</label>
+    <textarea id="localSDP" readonly></textarea>
+    <p>Connection status: <span id="status">idle</span></p>
+  </div>
+
+  <h2>2) Decrypt & Print</h2>
+  <div class="box">
+    <p>When a file is received, this page will attempt to unwrap the file key, decrypt
+       the bytes in memory, verify the SHA-256 fingerprint, then open a sandboxed
+       iframe for printing (no download, no preview allowed outside sandbox).</p>
+    <p id="actionLog"></p>
+  </div>
+
+  <script type="module">
+  import * as cryptoUtil from './crypto.js';
+
+  let pc = null;
+  let dc = null;
+  let ecdhKeyPair = null;
+  let theirEcdhPub = null;
+
+  const remoteSDP = document.getElementById('remoteSDP');
+  const localSDP = document.getElementById('localSDP');
+  const setOffer = document.getElementById('setOffer');
+  const statusEl = document.getElementById('status');
+  const actionLog = document.getElementById('actionLog');
+
+  function log(msg){ actionLog.textContent = (new Date()).toISOString() + ' — ' + msg; }
+
+  setOffer.onclick = async ()=>{
+    try{
+      pc = new RTCPeerConnection();
+      pc.ondatachannel = (ev)=>{
+        dc = ev.channel;
+        dc.binaryType = 'arraybuffer';
+        dc.onopen = ()=>{ statusEl.textContent = 'connected (DataChannel open)'; log('DataChannel open'); };
+        dc.onmessage = async (evt)=>{
+          try{
+            if(typeof evt.data === 'string'){
+              const msg = JSON.parse(evt.data);
+              if(msg.type === 'ecdh-request'){
+                // respond with our public ECDH key
+                if(!ecdhKeyPair) ecdhKeyPair = await cryptoUtil.generateEcdhKeyPair();
+                const myPub = await cryptoUtil.exportPublicKeyBase64(ecdhKeyPair.publicKey);
+                dc.send(JSON.stringify({ type:'ecdh-pub', pub: myPub }));
+                return;
+              }
+
+              if(msg.type === 'ecdh-pub'){
+                theirEcdhPub = await cryptoUtil.importPublicKeyBase64(msg.pub);
+                log('Received user ECDH public key');
+                // send our pub if we haven't
+                if(!ecdhKeyPair){ ecdhKeyPair = await cryptoUtil.generateEcdhKeyPair(); }
+                const myPub = await cryptoUtil.exportPublicKeyBase64(ecdhKeyPair.publicKey);
+                dc.send(JSON.stringify({ type:'ecdh-pub', pub: myPub }));
+                return;
+              }
+
+              if(msg.type === 'file'){
+                log('Received encrypted file metadata — starting unwrap/decrypt');
+                await handleIncomingFile(msg);
+                return;
+              }
+            }
+          }catch(e){ console.error(e); }
+        };
+      };
+
+      const s = remoteSDP.value.trim();
+      if(!s) return alert('Paste offer SDP from user');
+      const offer = { type:'offer', sdp: atob(s) };
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      pc.onicecandidate = (e)=>{ if(e.candidate) return; localSDP.value = btoa(pc.localDescription.sdp); };
+      statusEl.textContent = 'Created Answer — copy Local SDP back to user';
+    }catch(e){ console.error(e); }
+  };
+
+  async function handleIncomingFile(msg){
+    // Ensure we have our ECDH key pair and the user's public key
+    if(!ecdhKeyPair) ecdhKeyPair = await cryptoUtil.generateEcdhKeyPair();
+    if(!theirEcdhPub){ log('Waiting for user ECDH public key'); return; }
+
+    try{
+      const wrappedBuf = cryptoUtil.base64ToArrayBuffer(msg.wrappedKeyB64);
+      const ivBuf = cryptoUtil.base64ToArrayBuffer(msg.iv);
+      const cipherBuf = cryptoUtil.base64ToArrayBuffer(msg.cipherB64);
+
+      // derive wrapping key and unwrap file key
+      const wrappingKey = await cryptoUtil.deriveAesKwFromEcdh(ecdhKeyPair.privateKey, theirEcdhPub);
+      const fileKey = await cryptoUtil.unwrapFileKey(wrappedBuf, wrappingKey);
+
+      // decrypt (ArrayBuffer)
+      const plainBuf = await cryptoUtil.decryptArrayBuffer(cipherBuf, ivBuf, fileKey);
+
+      // verify SHA-256 fingerprint
+      const hashHex = await cryptoUtil.sha256Hex(plainBuf);
+      if(hashHex !== msg.fingerprint){
+        log('SHA-256 mismatch — aborting print');
+        // zero buffers
+        cryptoUtil.zeroArrayBuffer(wrappedBuf);
+        cryptoUtil.zeroArrayBuffer(ivBuf);
+        cryptoUtil.zeroArrayBuffer(cipherBuf);
+        return;
+      }
+
+      log('Integrity verified — launching sandboxed print (no disk write)');
+      // Create blob URL and open sandboxed iframe for printing only
+      const blob = new Blob([plainBuf], { type: msg.mimeType || 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      // sandbox limits: allow-scripts perhaps unnecessary; allow-modals needed for print in some browsers
+      iframe.setAttribute('sandbox', 'allow-modals');
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      iframe.onload = ()=>{
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(()=>{ document.body.removeChild(iframe); URL.revokeObjectURL(url); }, 1000);
+      };
+
+      // Post-print cleanup: zero memory, destroy keys, close connection
+      cryptoUtil.zeroArrayBuffer(wrappedBuf);
+      cryptoUtil.zeroArrayBuffer(ivBuf);
+      cryptoUtil.zeroArrayBuffer(cipherBuf);
+      cryptoUtil.zeroArrayBuffer(plainBuf);
+
+      // Best-effort: export raw key and zero then release references
+      try{ const raw = await cryptoUtil.exportRawKey(fileKey); cryptoUtil.zeroArrayBuffer(raw); }catch(e){}
+
+      // Close DataChannel and PeerConnection
+      try{ if(dc) dc.close(); if(pc) pc.close(); }catch(e){}
+      log('Print complete; keys and buffers zeroed; connection closed');
+    }catch(e){ console.error(e); log('Error during unwrap/decrypt: '+e.message); }
+  }
+  </script>
+</body>
+</html>

@@ -1,50 +1,113 @@
-// AES-256-GCM helpers using Web Crypto
+// Hardened WebCrypto helper for AES-256-GCM + SHA-256
 
-export async function generateAesKey() {
-  const key = await window.crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
+// ==============================
+// KEY GENERATION
+// ==============================
+export async function generateAESKey() {
+  return await crypto.subtle.generateKey(
+    {
+      name: "AES-GCM",
+      length: 256
+    },
+    true, // must be true so user can share key
+    ["encrypt", "decrypt"]
   );
-  const raw = new Uint8Array(await window.crypto.subtle.exportKey('raw', key));
-  const b64 = window.btoa(String.fromCharCode(...raw));
-  return { key, raw, b64 };
 }
 
-export async function importAesKeyFromBase64(b64) {
-  const bin = window.atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return window.crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
+// ==============================
+// SAFE BASE64 CONVERSION
+// ==============================
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
-export async function encryptFile(file, key) {
-  const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  const buf = await file.arrayBuffer();
-  const cipherBuf = await window.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+function base64ToUint8Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export async function exportKey(key) {
+  const raw = await crypto.subtle.exportKey("raw", key);
+  return arrayBufferToBase64(raw);
+}
+
+export async function importKey(base64) {
+  const raw = base64ToUint8Array(base64);
+  return await crypto.subtle.importKey(
+    "raw",
+    raw,
+    {
+      name: "AES-GCM"
+    },
+    false, // not extractable after import
+    ["decrypt"]
+  );
+}
+
+// ==============================
+// ENCRYPTION
+// ==============================
+export async function encryptFile(buffer, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
+
+  const encrypted = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      tagLength: 128
+    },
     key,
-    buf
+    buffer
   );
-  const cipherBytes = new Uint8Array(cipherBuf);
-  const combined = new Uint8Array(iv.length + cipherBytes.length);
-  combined.set(iv, 0);
-  combined.set(cipherBytes, iv.length);
-  return new Blob([combined], { type: 'application/octet-stream' });
+
+  return { encrypted, iv };
 }
 
-export async function decryptToBlob(base64Combined, key, mimeType) {
-  const bin = window.atob(base64Combined);
-  const combined = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) combined[i] = bin.charCodeAt(i);
-  const iv = combined.slice(0, 12);
-  const ciphertext = combined.slice(12);
-  const plainBuf = await window.crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ciphertext
-  );
-  return new Blob([plainBuf], { type: mimeType || 'application/octet-stream' });
+// ==============================
+// DECRYPTION
+// ==============================
+export async function decryptFile(encrypted, iv, key) {
+  try {
+    return await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv,
+        tagLength: 128
+      },
+      key,
+      encrypted
+    );
+  } catch (err) {
+    throw new Error("Decryption failed (invalid key or tampered data)");
+  }
 }
 
+// ==============================
+// SHA-256
+// ==============================
+export async function sha256(buffer) {
+  const hash = await crypto.subtle.digest("SHA-256", buffer);
+  const bytes = new Uint8Array(hash);
 
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// ==============================
+// MEMORY WIPE UTILITY
+// ==============================
+export function wipeUint8Array(arr) {
+  if (arr && arr.fill) {
+    arr.fill(0);
+  }
+}

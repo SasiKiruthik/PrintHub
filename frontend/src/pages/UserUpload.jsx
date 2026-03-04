@@ -1,237 +1,197 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api from '../api/client';
-import { generateAesKey, encryptFile } from '../utils/crypto';
+import { useState, useRef } from "react";
+import {
+  generateAESKey,
+  exportKey,
+  encryptFile,
+  sha256
+} from "../utils/crypto";
+import { createConnection, sendData, waitForIceGathering } from "../utils/p2p";
 
-export default function UserUpload() {
-  const [authed, setAuthed] = useState(false);
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authMessage, setAuthMessage] = useState('');
+function UserUpload() {
   const [file, setFile] = useState(null);
-  const [pageCount, setPageCount] = useState('');
-  const [printType, setPrintType] = useState('bw');
-  const [watermarkText, setWatermarkText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const [shareKey, setShareKey] = useState("");
+  const [fileHash, setFileHash] = useState("");
+  const [offerSDP, setOfferSDP] = useState("");
+  const [answerSDP, setAnswerSDP] = useState("");
+  const [status, setStatus] = useState("");
+  const [dataChannelStatus, setDataChannelStatus] = useState("No connection");
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const role = localStorage.getItem('role');
-    if (token && role === 'user') {
-      setAuthed(true);
-      setAuthMessage('You are logged in as user. You can upload documents now.');
-    } else {
-      setAuthMessage('Please login or create a user account before uploading.');
-    }
-  }, []);
+  const handleFileChange = (e) => {
+    const f = e.target.files[0];
+    setFile(f);
 
-  async function handleUserLogin(e) {
-    e.preventDefault();
-    setAuthMessage('');
-    try {
-      setAuthLoading(true);
-      const res = await api.post('/auth/user', { email: authEmail, password: authPassword });
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('role', 'user');
-      localStorage.setItem('userEmail', res.data.user.email);
-      setAuthed(true);
-      setAuthMessage('Login successful. You can upload your file now.');
-    } catch (err) {
-      console.error(err);
-      setAuthMessage(err.response?.data?.message || 'Login failed');
-      setAuthed(false);
-    } finally {
-      setAuthLoading(false);
-    }
-  }
+    // compute sha256 fingerprint immediately so it can be shared with shop
+    (async () => {
+      try {
+        const buffer = await f.arrayBuffer();
+        const h = await sha256(buffer);
+        setFileHash(h);
+      } catch (err) {
+        console.error("Failed to compute file hash:", err);
+        setFileHash("");
+      }
+    })();
+  };
 
-  async function handleUserRegister(e) {
-    e.preventDefault();
-    setAuthMessage('');
-    try {
-      setAuthLoading(true);
-      const res = await api.post('/auth/register', {
-        email: authEmail,
-        password: authPassword,
-        role: 'user'
-      });
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('role', 'user');
-      localStorage.setItem('userEmail', res.data.user.email);
-      setAuthed(true);
-      setAuthMessage('Account created and logged in. You can upload your file now.');
-    } catch (err) {
-      console.error(err);
-      setAuthMessage(err.response?.data?.message || 'Account creation failed');
-      setAuthed(false);
-    } finally {
-      setAuthLoading(false);
-    }
-  }
+  const peerRef = useRef(null);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
-    if (!authed) {
-      setError('Please login or create a user account first.');
+  // STEP 1: Create WebRTC Offer
+  const createOffer = async () => {
+    const peer = createConnection(() => {}, () => {
+      console.log("[Student] Channel opened!");
+      setDataChannelStatus("✓ DataChannel OPEN - connected to shop");
+    });
+    peerRef.current = peer;
+
+    // Diagnostics
+    peer.onicecandidate = (ev) => {
+      console.log("[Student] ICE candidate:", ev.candidate);
+    };
+    peer.oniceconnectionstatechange = () => {
+      console.log("[Student] ICE state:", peer.iceConnectionState, peer.iceGatheringState);
+      setStatus(`Student ICE: ${peer.iceConnectionState} / ${peer.iceGatheringState}`);
+    };
+
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    await waitForIceGathering(peer);
+
+    setOfferSDP(JSON.stringify(peer.localDescription));
+  };
+
+  // STEP 2: Accept Shop Answer
+  const acceptAnswer = async () => {
+    if (!peerRef.current) {
+      alert("No offer created yet. Generate connection code first.");
       return;
     }
+
+    try {
+      const remote = JSON.parse(answerSDP);
+      console.log("[Student] Setting remote description:", remote.type);
+      await peerRef.current.setRemoteDescription(remote);
+      setStatus("Remote answer applied — waiting for data channel to open.");
+    } catch (err) {
+      console.error("Failed to set remote description:", err);
+      const msg = err && err.message ? err.message : String(err);
+      alert("Invalid answer SDP. Check the pasted data.\n" + msg);
+      setStatus("Error applying remote answer: " + msg);
+    }
+  };
+
+  // STEP 3: Encrypt & Send
+  const handleUpload = async () => {
     if (!file) {
-      setError('Please choose a file');
+      alert("Select a file first");
       return;
     }
+
     try {
-      setLoading(true);
-      const { key, b64 } = await generateAesKey();
-      const encryptedBlob = await encryptFile(file, key);
+      setStatus("Encrypting file...");
+      // Convert to ArrayBuffer
+      const buffer = await file.arrayBuffer();
 
-      const formData = new FormData();
-      formData.append('file', encryptedBlob, file.name);
-      formData.append('pageCount', pageCount || '');
-      formData.append('printType', printType);
-      formData.append('watermarkText', watermarkText);
+      // Generate SHA-256 fingerprint
+      const hash = await sha256(buffer);
 
-      const res = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // Generate AES-256 key
+      const key = await generateAESKey();
+      const exportedKey = await exportKey(key);
+      setShareKey(exportedKey);
 
-      const job = res.data;
-      // Store token + key in session for token display page
-      sessionStorage.setItem(
-        'lastJob',
-        JSON.stringify({
-          ...job,
-          keyB64: b64
-        })
-      );
-      navigate('/user/token');
+      // Encrypt file
+      const { encrypted, iv } = await encryptFile(buffer, key);
+
+      // Convert to sendable format
+      const payload = {
+        fileName: file.name,
+        fileSize: file.size,
+        encrypted: Array.from(new Uint8Array(encrypted)),
+        iv: Array.from(iv),
+        hash
+      };
+
+      console.log("[Student] About to send payload, size:", JSON.stringify(payload).length);
+      setStatus("Sending encrypted file in chunks...");
+      sendData(JSON.stringify(payload));
+      console.log("[Student] Payload send initiated!");
+
+      // Wait a bit for all chunks to be sent
+      setTimeout(() => {
+        setStatus("✓ Encrypted file sent to shop. Share this AES key with the print shop.");
+      }, 2000);
     } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || 'Upload failed');
-    } finally {
-      setLoading(false);
+      console.error("[Student] Error during send:", err);
+      setStatus("Error: " + err.message);
+      alert("Error: " + err.message);
     }
-  }
+  };
 
   return (
-    <div className="max-w-xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">Upload & encrypt document</h1>
-      <p className="text-sm text-slate-300 mb-4">
-        Files are encrypted in your browser with AES-256 before upload. The print shop will only
-        see basic metadata.
-      </p>
+    <div className="p-6">
+      <h2 className="text-xl font-bold mb-4">Secure Upload</h2>
 
-      <div className="mb-6 border border-slate-800 rounded-lg p-4 bg-slate-900/50 space-y-3">
-        <h2 className="text-sm font-semibold">User account</h2>
-        <p className="text-xs text-slate-300">
-          Create a user account or login to manage your encrypted print jobs.
-        </p>
-        <form className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
-          <div className="md:col-span-1">
-            <label className="block text-xs mb-1">Email</label>
-            <input
-              type="email"
-              value={authEmail}
-              onChange={(e) => setAuthEmail(e.target.value)}
-              className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs"
-            />
-          </div>
-          <div className="md:col-span-1">
-            <label className="block text-xs mb-1">Password</label>
-            <input
-              type="password"
-              value={authPassword}
-              onChange={(e) => setAuthPassword(e.target.value)}
-              className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs"
-            />
-          </div>
-          <div className="flex gap-2 md:justify-end mt-2 md:mt-0">
-            <button
-              onClick={handleUserLogin}
-              disabled={authLoading}
-              className="inline-flex items-center justify-center rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-50 hover:bg-slate-700 disabled:opacity-60"
-            >
-              Login
-            </button>
-            <button
-              onClick={handleUserRegister}
-              disabled={authLoading}
-              className="inline-flex items-center justify-center rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-            >
-              Create user
-            </button>
-          </div>
-        </form>
-        {authMessage && <p className="text-xs text-slate-300">{authMessage}</p>}
-        {!authed && (
-          <p className="text-xs text-amber-400">
-            You are not logged in. Upload will fail until you login or create an account.
-          </p>
-        )}
+      <input type="file" onChange={handleFileChange} />
+
+      <div className="mt-4">
+        <button onClick={createOffer} className="bg-blue-500 text-white px-4 py-2 rounded">
+          Generate Connection Code
+        </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm mb-1">File</label>
-          <input
-            type="file"
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-slate-200 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-emerald-500 file:text-slate-950 hover:file:bg-emerald-400"
-          />
+      {offerSDP && (
+        <div className="mt-4">
+          <p className="font-semibold">Share this with Shop:</p>
+          <textarea value={offerSDP} readOnly rows={6} className="w-full border p-2" />
           {file && (
-            <p className="text-xs text-slate-400 mt-1">
-              {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-            </p>
+            <div className="mt-2 text-sm">
+              <div className="font-semibold">File:</div>
+              <div className="font-mono break-all">{file.name}</div>
+              <div className="font-semibold mt-2">SHA-256 fingerprint (hex):</div>
+              <div className="font-mono break-all">{fileHash || "computing..."}</div>
+            </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm mb-1">Estimated pages</label>
-            <input
-              type="number"
-              min="1"
-              value={pageCount}
-              onChange={(e) => setPageCount(e.target.value)}
-              className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Print type</label>
-            <select
-              value={printType}
-              onChange={(e) => setPrintType(e.target.value)}
-              className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm"
-            >
-              <option value="bw">Black &amp; White</option>
-              <option value="color">Color</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm mb-1">Watermark (optional)</label>
-          <input
-            type="text"
-            value={watermarkText}
-            onChange={(e) => setWatermarkText(e.target.value)}
-            placeholder="For official use only"
-            className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm"
-          />
-        </div>
-        {error && <p className="text-xs text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="inline-flex items-center justify-center rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-        >
-          {loading ? 'Encrypting & uploading…' : 'Encrypt & upload'}
+      )}
+
+      <div className="mt-4">
+        <textarea
+          placeholder="Paste Shop Answer Here"
+          value={answerSDP}
+          onChange={(e) => setAnswerSDP(e.target.value)}
+          rows={4}
+          className="w-full border p-2"
+        />
+        <button onClick={acceptAnswer} className="bg-green-500 text-white px-4 py-2 mt-2 rounded">
+          Connect
         </button>
-      </form>
+      </div>
+
+      <div className="mt-6">
+        <button onClick={handleUpload} className="bg-purple-600 text-white px-6 py-2 rounded">
+          Encrypt & Send File
+        </button>
+      </div>
+
+      {shareKey && (
+        <div className="mt-6 bg-yellow-100 p-4 rounded">
+          <p className="font-semibold">Share this AES Key with Shop:</p>
+          <p className="break-all">{shareKey}</p>
+        </div>
+      )}
+
+      {fileHash && (
+        <div className="mt-2 text-xs text-slate-300">Share the SHA-256 fingerprint with the shop so they can verify the decrypted file before printing.</div>
+      )}
+
+      {status && <p className="text-xs text-slate-300 mt-3">{status}</p>}
+      
+      {/* DEBUG: Show DataChannel Status */}
+      <div className="text-xs text-amber-300 mt-3 p-2 border border-amber-600 rounded bg-slate-900/50">
+        <strong>DataChannel Status:</strong> {dataChannelStatus}
+      </div>
     </div>
   );
 }
 
-
+export default UserUpload;

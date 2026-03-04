@@ -4,43 +4,65 @@ import { Link } from 'react-router-dom';
 export default function Home() {
   return (
     <div className="max-w-4xl mx-auto">
-      <h1 className="text-3xl font-semibold mb-4">Privacy-first cloud printing</h1>
+      <h1 className="text-3xl font-semibold mb-4">Secure PrintHub</h1>
+
       <p className="text-slate-300 mb-6">
-        Secure PrintHub lets you encrypt documents in your browser, share a short print token or QR,
-        and print at shops without exposing your files or phone number.
+        Privacy-preserving peer-to-peer printing system. Documents are encrypted
+        locally in your browser using AES-256-GCM and transmitted directly to
+        the print shop via secure WebRTC connection. No server storage. No cloud.
+        No plaintext exposure.
       </p>
+
       <div className="grid gap-4 md:grid-cols-2">
+
+        {/* STUDENT SIDE */}
         <div className="border border-slate-800 rounded-xl p-4 bg-slate-900/40">
-          <h2 className="font-medium mb-2">For users</h2>
+          <h2 className="font-medium mb-2">For Students</h2>
+
           <ul className="text-sm text-slate-300 list-disc list-inside space-y-1 mb-3">
-            <li>Encrypts files locally with AES-256</li>
-            <li>Generates one-time 6-digit print token</li>
-            <li>Auto-deletes after printing or on demand</li>
+            <li>File encrypted locally using AES-256-GCM</li>
+            <li>SHA-256 fingerprint ensures integrity</li>
+            <li>Direct browser-to-browser transfer</li>
+            <li>No server storage or file retention</li>
           </ul>
+
           <Link
             to="/user/upload"
             className="inline-flex items-center justify-center rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
           >
-            Go to Upload
+            Start Secure Upload
           </Link>
         </div>
+
+        {/* SHOP SIDE */}
         <div className="border border-slate-800 rounded-xl p-4 bg-slate-900/40">
-          <h2 className="font-medium mb-2">For print shops</h2>
+          <h2 className="font-medium mb-2">For Print Shops</h2>
+
           <ul className="text-sm text-slate-300 list-disc list-inside space-y-1 mb-3">
-            <li>See only metadata (pages, size, type)</li>
-            <li>No file downloads or previews</li>
-            <li>Track completed prints</li>
+            <li>Receive encrypted file via WebRTC</li>
+            <li>Decrypt only in memory using student-provided key</li>
+            <li>SHA-256 verification before printing</li>
+            <li>No preview, no saving, no storage</li>
           </ul>
+
           <Link
-            to="/shop/login"
+            to="/shop/dashboard"
             className="inline-flex items-center justify-center rounded-md bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-50 hover:bg-slate-700"
           >
-            Shop Login
+            Open Shop Dashboard
           </Link>
         </div>
+
+      </div>
+
+      {/* SECURITY SUMMARY */}
+      <div className="mt-8 text-xs text-slate-400 space-y-1 border-t border-slate-800 pt-4">
+        <p>✓ AES-256-GCM client-side encryption</p>
+        <p>✓ SHA-256 integrity verification</p>
+        <p>✓ Zero backend storage</p>
+        <p>✓ Zero-trust printing model</p>
+        <p>✓ Automatic in-memory cleanup after print</p>
       </div>
     </div>
   );
 }
-
-

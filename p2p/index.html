@@ -1,0 +1,205 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>P2P Secure Upload (User)</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:20px;color:#111;background:#f7f7fc}
+    textarea{width:100%;height:120px}
+    pre{background:#111;color:#0f0;padding:8px}
+    .box{border:1px solid #ddd;padding:12px;border-radius:8px;background:#fff}
+  </style>
+</head>
+<body>
+  <h1>P2P Secure Upload — User</h1>
+  <p>This page demonstrates direct P2P encrypted transfer. No server or storage is used.</p>
+
+  <div class="box">
+    <label>Select file (PDF / image):</label><br/>
+    <input id="fileInput" type="file" accept="application/pdf,image/*" />
+    <div id="fileInfo"></div>
+  </div>
+
+  <h2>1) WebRTC Signaling</h2>
+  <div class="box">
+    <button id="createOffer">Create offer (you -> shop)</button>
+    <p>Copy the Offer SDP and give it to the Shop (via QR or paste). Paste the Answer SDP below when ready.</p>
+    <label>Local SDP (copy to shop):</label>
+    <textarea id="localSDP" readonly></textarea>
+    <label>Paste Answer SDP from shop here:</label>
+    <textarea id="remoteSDP"></textarea>
+    <button id="setRemote">Set remote SDP</button>
+    <p>Connection status: <span id="status">idle</span></p>
+  </div>
+
+  <h2>2) Send file</h2>
+  <div class="box">
+    <button id="sendFile" disabled>Encrypt & send file to shop</button>
+    <p id="sendStatus"></p>
+    <label>Manual copy of the AES wrapping info (shop can also receive via DataChannel):</label>
+    <pre id="outPayload"></pre>
+  </div>
+
+  <script type="module">
+  import * as cryptoUtil from './crypto.js';
+
+  let pc = null;
+  let dc = null;
+  let ecdhKeyPair = null;
+  let theirEcdhPub = null;
+
+  const createOffer = document.getElementById('createOffer');
+  const localSDP = document.getElementById('localSDP');
+  const remoteSDP = document.getElementById('remoteSDP');
+  const setRemote = document.getElementById('setRemote');
+  const statusEl = document.getElementById('status');
+  const fileInput = document.getElementById('fileInput');
+  const fileInfo = document.getElementById('fileInfo');
+  const sendFileBtn = document.getElementById('sendFile');
+  const sendStatus = document.getElementById('sendStatus');
+  const outPayload = document.getElementById('outPayload');
+
+  fileInput.addEventListener('change', ()=>{
+    const f = fileInput.files[0];
+    if(f) fileInfo.textContent = `${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+    sendFileBtn.disabled = !f || !dc || dc.readyState !== 'open';
+  });
+
+  createOffer.onclick = async ()=>{
+    pc = new RTCPeerConnection();
+    dc = pc.createDataChannel('p2p');
+    dc.binaryType = 'arraybuffer';
+    dc.onopen = ()=>{ statusEl.textContent = 'connected (DataChannel open)'; console.log('[Student] DataChannel open!'); sendFileBtn.disabled = !fileInput.files[0]; };
+    dc.onmessage = async (ev)=>{
+      // We expect the shop to send its ECDH public key once channel opens
+      try{
+        const msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
+        if(msg && msg.type === 'ecdh-pub'){
+          theirEcdhPub = await cryptoUtil.importPublicKeyBase64(msg.pub);
+          // generate our ECDH keys and send ours
+          if(!ecdhKeyPair){
+            ecdhKeyPair = await cryptoUtil.generateEcdhKeyPair();
+            const myPub = await cryptoUtil.exportPublicKeyBase64(ecdhKeyPair.publicKey);
+            dc.send(JSON.stringify({ type:'ecdh-pub', pub: myPub }));
+          }
+          statusEl.textContent = 'ECDH public keys exchanged';
+        }
+      }catch(e){ console.error(e); }
+    };
+
+    pc.onicecandidate = (e)=>{ if(e.candidate) return; localSDP.value = btoa(pc.localDescription.sdp); };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // Wait for ICE gathering to complete then localSDP will be set in onicecandidate
+    statusEl.textContent = 'created offer — copy the Local SDP to shop';
+  };
+
+  setRemote.onclick = async ()=>{
+    if(!pc) { alert('Create offer first'); return; }
+    const s = remoteSDP.value.trim();
+    if(!s) return alert('Paste remote SDP');
+    const answer = { type:'answer', sdp: atob(s) };
+    await pc.setRemoteDescription(answer);
+    statusEl.textContent = 'Remote SDP set — waiting for DataChannel';
+  };
+
+  // Allow shop to request our ECDH pub by sending 'ecdh-request' over the channel.
+  // When ready to send file, do encryption + wrap key, then send a JSON payload.
+  sendFileBtn.onclick = async ()=>{
+    const file = fileInput.files[0];
+    if(!file) return;
+    if(!dc || dc.readyState !== 'open') return alert('DataChannel not open');
+    sendStatus.textContent = 'Reading file and computing hash...';
+    const buf = await file.arrayBuffer();
+    const fingerprint = await cryptoUtil.sha256Hex(buf);
+
+    // generate file key and encrypt
+    const fileKey = await cryptoUtil.generateFileKey();
+    const { iv, cipher } = await cryptoUtil.encryptArrayBuffer(buf, fileKey);
+
+    // Export raw key as base64 as a fallback (shop can import directly if ECDH is not used)
+    let keyB64 = null;
+    try {
+      const raw = await cryptoUtil.exportRawKey(fileKey);
+      keyB64 = cryptoUtil.arrayBufferToBase64(raw);
+    } catch (e) {
+      console.warn('Could not export raw key (non-extractable?), ECDH-only path will be used', e);
+    }
+
+    // ensure ECDH keys exist and their public key available
+    if(!ecdhKeyPair) ecdhKeyPair = await cryptoUtil.generateEcdhKeyPair();
+
+    // If we don't yet have the shop's ECDH public key, request it and wait
+    if(!theirEcdhPub){
+      dc.send(JSON.stringify({ type:'ecdh-request' }));
+      sendStatus.textContent = 'Requested shop ECDH public key — waiting for shop to respond...';
+      sendFileBtn.disabled = true;
+
+      // Wait up to 15s for theirEcdhPub to be set by the onmessage handler
+      const waitForTheirPub = (timeoutMs = 15000) => new Promise((resolve, reject) => {
+        const start = Date.now();
+        const iv = setInterval(() => {
+          if (theirEcdhPub) {
+            clearInterval(iv);
+            resolve(true);
+          } else if (Date.now() - start > timeoutMs) {
+            clearInterval(iv);
+            reject(new Error('Timed out waiting for shop ECDH public key'));
+          }
+        }, 200);
+      });
+
+      try {
+        await waitForTheirPub(15000);
+        sendStatus.textContent = 'Shop ECDH public key received — continuing send...';
+      } catch (err) {
+        sendStatus.textContent = 'Shop did not respond in time. Try again.';
+        sendFileBtn.disabled = false;
+        return;
+      } finally {
+        // re-enable when we proceed (send will re-disable if needed)
+        sendFileBtn.disabled = false;
+      }
+    }
+
+    // derive wrapping key and wrap the file key
+    const wrappingKey = await cryptoUtil.deriveAesKwFromEcdh(ecdhKeyPair.privateKey, theirEcdhPub);
+    const wrapped = await cryptoUtil.wrapFileKey(fileKey, wrappingKey); // ArrayBuffer
+
+    // Prepare payload (base64 for demo). For large files use chunked binary send.
+    const payload = {
+      type: 'file',
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      fingerprint,
+      iv: cryptoUtil.arrayBufferToBase64(iv),
+      cipherB64: cryptoUtil.arrayBufferToBase64(cipher),
+      wrappedKeyB64: cryptoUtil.arrayBufferToBase64(wrapped),
+      // include raw AES key as base64 fallback so shops that don't perform ECDH can still decrypt
+      keyB64
+    };
+
+    // disable while sending and show progress
+    sendFileBtn.disabled = true;
+    sendStatus.textContent = 'Sending encrypted file...';
+    console.log('[Student] Payload to send:', payload);
+    console.log('[Student] Payload JSON length:', JSON.stringify(payload).length);
+    dc.send(JSON.stringify(payload));
+    console.log('[Student] Payload sent!');
+    sendStatus.textContent = 'Encrypted file sent to shop (ciphertext only).';
+
+    // re-enable after a short delay
+    setTimeout(()=>{ sendFileBtn.disabled = false; }, 500);
+
+    // Crypto-shred sensitive things
+    cryptoUtil.zeroArrayBuffer(wrapped);
+    // zero fileKey by exporting raw then filling (best-effort)
+    try{ const raw = await cryptoUtil.exportRawKey(fileKey); cryptoUtil.zeroArrayBuffer(raw); }catch(e){}
+    // release references
+    // Note: browser GC will reclaim; callers should avoid storing plaintext anywhere.
+    fileKey = null;
+  };
+  </script>
+</body>
+</html>
