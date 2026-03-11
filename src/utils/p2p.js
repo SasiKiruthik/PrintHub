@@ -7,18 +7,18 @@ let iceCandidatesRemote = [];
 
 const rtcConfig = {
   iceServers: [
-    // STUN servers for NAT traversal
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun4.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-    { urls: "stun:stun3.l.google.com:19302" },
-    // TURN servers for relaying when direct connection is impossible
-    { 
-      urls: ["turn:turnserver.twilio.com:3478?transport=udp"],
-      username: "d8a6b97add2c6dc1f6621e092f8eac2d62e37744c2bf47d1b149a247e8675dff",
-      credential: "GJaML8g+A8r3dEFfMhqCLn0nABCDEFGHIJKLMNOPQRSTUVWXYZ="
-    }
+    // Primary STUN servers for NAT traversal (no authentication required)
+    { urls: ["stun:stun.l.google.com:19302"] },
+    { urls: ["stun:stun1.l.google.com:19302"] },
+    { urls: ["stun:stun2.l.google.com:19302"] },
+    { urls: ["stun:stun3.l.google.com:19302"] },
+    { urls: ["stun:stun4.l.google.com:19302"] },
+    { urls: ["stun:stun5.l.google.com:19302"] },
+    { urls: ["stun:stun6.l.google.com:19302"] },
+    
+    // Backup STUN servers
+    { urls: ["stun:stun.services.mozilla.com:3478"] },
+    { urls: ["stun:stun.stunprotocol.org:3478"] }
   ],
   bundlePolicy: "max-bundle",
   rtcpMuxPolicy: "require"
@@ -27,7 +27,7 @@ const rtcConfig = {
 // ==============================
 // CREATE CONNECTION (Student)
 // ==============================
-export function createConnection(onReceive, onChannelOpen, onIceCandidate) {
+export function createConnection(onReceive, onChannelOpen, onIceCandidate, onChannelCreated) {
   peer = new RTCPeerConnection(rtcConfig);
   iceCandidatesLocal = [];
   iceCandidatesRemote = [];
@@ -35,6 +35,9 @@ export function createConnection(onReceive, onChannelOpen, onIceCandidate) {
   channel = peer.createDataChannel("secure-file", {
     ordered: true
   });
+  
+  // Notify that channel was created
+  if (onChannelCreated) onChannelCreated(channel);
 
   channel.onmessage = (event) => {
     console.log("[Student] onmessage received, data type:", typeof event.data);
@@ -83,7 +86,7 @@ export function createConnection(onReceive, onChannelOpen, onIceCandidate) {
 // ==============================
 // ACCEPT CONNECTION (Shop)
 // ==============================
-export function acceptConnection(onReceive, onChannelOpen, onIceCandidate) {
+export function acceptConnection(onReceive, onChannelOpen, onIceCandidate, onChannelCreated) {
   peer = new RTCPeerConnection(rtcConfig);
   iceCandidatesLocal = [];
   iceCandidatesRemote = [];
@@ -91,6 +94,9 @@ export function acceptConnection(onReceive, onChannelOpen, onIceCandidate) {
   peer.ondatachannel = (event) => {
     channel = event.channel;
     console.log("[Shop] DataChannel received! Label:", channel.label, "State:", channel.readyState);
+    
+    // Notify that channel was created
+    if (onChannelCreated) onChannelCreated(channel);
 
     channel.onmessage = (e) => {
       onReceive(e.data);
@@ -195,18 +201,21 @@ export function sendData(data) {
 // ==============================
 // WAIT FOR ICE GATHERING
 // ==============================
-export function waitForIceGathering(pc, timeoutMs = 5000) {
+export function waitForIceGathering(pc, timeoutMs = 10000) {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === "complete") {
+      console.log("[P2P] ICE already complete, resolving immediately");
       resolve();
       return;
     }
 
     let timeoutHandle = setTimeout(() => {
+      console.log("[P2P] ICE gathering timeout reached, resolving");
       resolve(); // Resolve after timeout
     }, timeoutMs);
 
     pc.onicegatheringstatechange = () => {
+      console.log("[P2P] ICE gathering state change:", pc.iceGatheringState);
       if (pc.iceGatheringState === "complete") {
         clearTimeout(timeoutHandle);
         resolve();
@@ -216,10 +225,31 @@ export function waitForIceGathering(pc, timeoutMs = 5000) {
 }
 
 // ==============================
-// GET LOCAL ICE CANDIDATES
+// GET CONNECTION STATUS
 // ==============================
-export function getLocalIceCandidates() {
-  return iceCandidatesLocal;
+export function getConnectionStatus(pc) {
+  if (!pc) return { status: "No peer connection" };
+  
+  return {
+    connectionState: pc.connectionState,
+    iceConnectionState: pc.iceConnectionState,
+    iceGatheringState: pc.iceGatheringState,
+    signalingState: pc.signalingState,
+    localDescription: pc.localDescription ? "Set" : "Not set",
+    remoteDescription: pc.remoteDescription ? "Set" : "Not set",
+    iceCandidate: `Total candidates: ${iceCandidatesLocal.length}`
+  };
+}
+
+export function getDataChannelStatus(ch) {
+  if (!ch) return { status: "No data channel" };
+  
+  return {
+    readyState: ch.readyState,
+    label: ch.label,
+    ordered: ch.ordered,
+    bufferedAmount: ch.bufferedAmount
+  };
 }
 
 // ==============================

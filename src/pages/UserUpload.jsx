@@ -7,7 +7,7 @@ import {
   encryptFile,
   sha256
 } from "../utils/crypto";
-import { createConnection, sendData, waitForIceGathering } from "../utils/p2p";
+import { createConnection, sendData, waitForIceGathering, getConnectionStatus, getDataChannelStatus } from "../utils/p2p";
 
 function UserUpload() {
   const [file, setFile] = useState(null);
@@ -24,6 +24,7 @@ function UserUpload() {
   const [showOfferStep, setShowOfferStep] = useState(false);
   const [showAnswerStep, setShowAnswerStep] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [diagnostics, setDiagnostics] = useState("");
 
   const handleFileChange = (e) => {
     const f = e.target.files[0];
@@ -43,6 +44,7 @@ function UserUpload() {
   };
 
   const peerRef = useRef(null);
+  const dataChannelRef = useRef(null);
 
   // Countdown timer for passcode validity
   useEffect(() => {
@@ -103,6 +105,11 @@ function UserUpload() {
           setConnectionStatus("✅ Connected");
           setIsConnected(true);
           setStatus("✅ Connected! Ready to send file.");
+        },
+        undefined,
+        (ch) => {
+          console.log("[Student] Data channel created");
+          dataChannelRef.current = ch;
         }
       );
       peerRef.current = peer;
@@ -200,11 +207,41 @@ function UserUpload() {
       const answerB64 = answerSDP.trim();
       const answer = JSON.parse(atob(answerB64));
       await peerRef.current.setRemoteDescription(answer);
-      setStatus("✅ Answer set! Waiting for data channel to open...");
+      setStatus("✅ Answer set! Waiting for data channel to open (this may take 5-10 seconds)...");
       setShowAnswerStep(false);
+      
+      // Wait for data channel to actually open (up to 15 seconds)
+      let timeout = 0;
+      const maxTimeout = 15000;
+      const checkInterval = 500;
+      
+      const waitForChannelOpen = setInterval(() => {
+        timeout += checkInterval;
+        const connStatus = getConnectionStatus(peerRef.current);
+        const chStatus = dataChannelRef.current ? getDataChannelStatus(dataChannelRef.current) : { readyState: 'not created' };
+        
+        setDiagnostics(`ICE: ${connStatus.iceConnectionState} | Peer: ${connStatus.connectionState} | Channel: ${chStatus.readyState}`);
+        
+        if (dataChannelRef.current && dataChannelRef.current.readyState === "open") {
+          clearInterval(waitForChannelOpen);
+          setDataChannelStatus("✅ DataChannel OPEN");
+          setConnectionStatus("✅ Connected");
+          setIsConnected(true);
+          setStatus("✅ Connected! Ready to send file.");
+          setDiagnostics("");
+        } else if (timeout >= maxTimeout) {
+          clearInterval(waitForChannelOpen);
+          setStatus("❌ Data channel did not open after 15 seconds. Check internet connection and try again.");
+          const finalStatus = getConnectionStatus(peerRef.current);
+          setDiagnostics(`Final state - ICE: ${finalStatus.iceConnectionState} | Peer: ${finalStatus.connectionState}`);
+        }
+      }, checkInterval);
+      
     } catch (err) {
       console.error("Failed to set answer:", err);
       setStatus("❌ Error setting answer: " + err.message);
+      const connStatus = getConnectionStatus(peerRef.current);
+      setDiagnostics(JSON.stringify(connStatus, null, 2));
     }
   };
 
@@ -453,6 +490,13 @@ function UserUpload() {
             <div>Data Channel: {dataChannelStatus}</div>
             <div>Peer Connection: {connectionStatus}</div>
           </div>
+        </div>
+      )}
+      
+      {diagnostics && (
+        <div className="text-xs mt-4 p-3 border border-amber-700 rounded-lg bg-amber-900/20">
+          <strong className="text-amber-300">🔍 Diagnostics:</strong>
+          <div className="mt-2 text-amber-300 font-mono whitespace-pre-wrap break-words">{diagnostics}</div>
         </div>
       )}
     </div>

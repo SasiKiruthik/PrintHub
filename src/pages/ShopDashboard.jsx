@@ -8,7 +8,7 @@ import {
   decryptFile,
   sha256
 } from "../utils/crypto";
-import { acceptConnection, waitForIceGathering } from "../utils/p2p";
+import { acceptConnection, waitForIceGathering, getConnectionStatus, getDataChannelStatus } from "../utils/p2p";
 
 export default function ShopDashboard() {
   const [studentPasscodeInput, setStudentPasscodeInput] = useState("");
@@ -24,8 +24,10 @@ export default function ShopDashboard() {
   const [answerSDP, setAnswerSDP] = useState("");
   const [showAnswerStep, setShowAnswerStep] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
+  const [diagnostics, setDiagnostics] = useState("");
 
   const peerRef = useRef(null);
+  const dataChannelRef = useRef(null);
   const fileInputRef = useRef(null);
   const [qrError, setQrError] = useState("");
   const messageBufferRef = useRef(""); // Buffer for reassembling chunked messages
@@ -74,6 +76,9 @@ export default function ShopDashboard() {
         setDataChannelStatus("✅ DataChannel OPEN");
         setConnectionStatus("✅ Connected");
         setStatus("✅ Connected! Waiting for encrypted file...");
+      }, undefined, (ch) => {
+        console.log("[Shop] Data channel created");
+        dataChannelRef.current = ch;
       });
       peerRef.current = peer;
 
@@ -161,18 +166,46 @@ export default function ShopDashboard() {
       await peerRef.current.setLocalDescription(answer);
       
       setStatus("⏳ Gathering ICE candidates...");
-      await waitForIceGathering(peerRef.current, 8000);
+      await waitForIceGathering(peerRef.current, 10000);
 
       // Display answer in base64 for manual copy-paste
       const answerB64 = btoa(JSON.stringify(peerRef.current.localDescription));
       setAnswerSDP(answerB64);
       setShowAnswerStep(true);
       setStatus("✅ Answer created! Copy and send back to student.");
+      
+      // Start monitoring for data channel (shop receives the data channel from student)
+      let timeout = 0;
+      const maxTimeout = 20000;
+      const checkInterval = 500;
+      
+      const monitorChannel = setInterval(() => {
+        timeout += checkInterval;
+        const connStatus = getConnectionStatus(peerRef.current);
+        const chStatus = dataChannelRef.current ? getDataChannelStatus(dataChannelRef.current) : { readyState: 'waiting for student channel' };
+        
+        setDiagnostics(`ICE: ${connStatus.iceConnectionState} | Peer: ${connStatus.connectionState} | Channel: ${chStatus.readyState}`);
+        
+        if (dataChannelRef.current && dataChannelRef.current.readyState === "open") {
+          clearInterval(monitorChannel);
+          setDataChannelStatus("✅ DataChannel OPEN");
+          setConnectionStatus("✅ Connected");
+          setStatus("✅ Connected! Waiting for encrypted file...");
+          setDiagnostics("");
+        } else if (timeout >= maxTimeout) {
+          clearInterval(monitorChannel);
+          // Don't show timeout error on shop side, just update diagnostics
+          const finalStatus = getConnectionStatus(peerRef.current);
+          setDiagnostics(`Final state - ICE: ${finalStatus.iceConnectionState} | Peer: ${finalStatus.connectionState}`);
+        }
+      }, checkInterval);
 
     } catch (err) {
       console.error("Failed to process offer:", err);
       setStatus("❌ Connection error: " + err.message);
       setConnectionStatus("Failed");
+      const connStatus = getConnectionStatus(peerRef.current);
+      setDiagnostics(JSON.stringify(connStatus, null, 2));
     }
   };
 
@@ -564,6 +597,13 @@ export default function ShopDashboard() {
             <div>Data Channel: {dataChannelStatus}</div>
             <div>Peer Connection: {connectionStatus}</div>
           </div>
+        </div>
+      )}
+      
+      {diagnostics && (
+        <div className="text-xs mt-4 p-3 border border-amber-700 rounded-lg bg-amber-900/20">
+          <strong className="text-amber-300">🔍 Diagnostics:</strong>
+          <div className="mt-2 text-amber-300 font-mono whitespace-pre-wrap break-words">{diagnostics}</div>
         </div>
       )}
 
