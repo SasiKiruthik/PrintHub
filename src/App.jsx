@@ -52,16 +52,17 @@ function App() {
         minHeight: '100vh',
         width: '100%',
         color: '#f1f5f9',
-        padding: '1rem',
+        padding: 'clamp(0.5rem, 5vw, 2rem)',
         margin: 0,
         overflow: 'auto',
         position: 'relative',
-        zIndex: 1
+        zIndex: 1,
+        boxSizing: 'border-box'
       }}>
         <header style={{
           maxWidth: '80rem',
           margin: '0 auto',
-          marginBottom: '2rem',
+          marginBottom: 'clamp(1rem, 5vw, 2rem)',
           paddingTop: '1rem',
           paddingBottom: '1rem',
           borderBottom: '1px solid #1e293b',
@@ -72,9 +73,14 @@ function App() {
               from { transform: translateY(-30px); opacity: 0; }
               to { transform: translateY(0); opacity: 1; }
             }
+            @media (max-width: 640px) {
+              header {
+                margin-bottom: 1rem !important;
+              }
+            }
           `}</style>
           <h1 style={{
-            fontSize: '1.5rem',
+            fontSize: 'clamp(1.25rem, 6vw, 1.5rem)',
             fontWeight: 'bold',
             textAlign: 'center',
             marginBottom: '0.5rem',
@@ -84,13 +90,15 @@ function App() {
           <p style={{
             textAlign: 'center',
             color: '#94a3b8',
-            fontSize: '0.875rem',
+            fontSize: 'clamp(0.75rem, 4vw, 0.875rem)',
             marginTop: '0.25rem'
           }}>Peer-to-Peer Encrypted Printing</p>
         </header>
         <main style={{
           maxWidth: '80rem',
-          margin: '0 auto'
+          margin: '0 auto',
+          width: '100%',
+          boxSizing: 'border-box'
         }}>
           <Routes>
             <Route path="/" element={<Home />} />

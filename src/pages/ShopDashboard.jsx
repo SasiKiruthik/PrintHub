@@ -9,6 +9,7 @@ import {
   sha256
 } from "../utils/crypto";
 import { acceptConnection, waitForIceGathering, getConnectionStatus, getDataChannelStatus } from "../utils/p2p";
+import { printDecryptedFile } from "../utils/printHandler";
 
 export default function ShopDashboard() {
   const [studentPasscodeInput, setStudentPasscodeInput] = useState("");
@@ -314,26 +315,24 @@ export default function ShopDashboard() {
         }
       }
 
-      // Print in memory
+      // Print using smart handler
       setStatus("🞨 Opening print dialog...");
-      const blob = new Blob([decrypted]);
-      const url = URL.createObjectURL(blob);
-
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = url;
-      document.body.appendChild(iframe);
-
-      iframe.onload = () => {
-        iframe.contentWindow.print();
-        URL.revokeObjectURL(url);
-
-        // Clear memory
+      
+      // Get the file name from payload
+      const fileName = receivedPayload.fileName || "document";
+      
+      try {
+        const result = await printDecryptedFile(decrypted, fileName);
+        
+        // Clear memory after successful print
         setReceivedPayload(null);
         setStudentPasscodeInput("");
-        setStatus("✅ Printed successfully. Memory cleared.");
+        setStatus(`✅ ${result.message} Memory cleared.`);
         setIsDecrypting(false);
-      };
+      } catch (printErr) {
+        setStatus(`❌ Print error: ${printErr.message}`);
+        setIsDecrypting(false);
+      }
 
     } catch (err) {
       console.error(err);
@@ -398,9 +397,43 @@ export default function ShopDashboard() {
 
   return (
     <div>
+      <style>{`
+        @media (max-width: 768px) {
+          .shop-container {
+            padding: 1rem !important;
+          }
+          > div > div:first-child {
+            max-height: 150px !important;
+          }
+          textarea {
+            font-size: 16px !important;
+            height: 5rem !important;
+          }
+          input[type="text"] {
+            font-size: 16px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .shop-container {
+            padding: 0.75rem !important;
+            max-width: 100% !important;
+          }
+          textarea {
+            height: 4rem !important;
+            font-size: 12px !important;
+          }
+          .button-group {
+            flex-direction: column !important;
+          }
+          .button-group button {
+            width: 100% !important;
+          }
+        }
+      `}</style>
+      
       {/* VIDEO SECTION */}
-      <div style={{ marginBottom: '2rem', borderRadius: '12px', overflow: 'hidden', border: '1px solid #333', backgroundColor: '#000' }}>
-        <div style={{ position: 'relative', width: '100%', backgroundColor: '#000', aspectRatio: '16/9', maxHeight: '250px' }}>
+      <div style={{ marginBottom: 'clamp(1rem, 5vw, 2rem)', borderRadius: '12px', overflow: 'hidden', border: '1px solid #333', backgroundColor: '#000' }}>
+        <div style={{ position: 'relative', width: '100%', backgroundColor: '#000', aspectRatio: '16/9', maxHeight: 'clamp(150px, 30vw, 250px)' }}>
           <video
             autoPlay
             muted
@@ -414,9 +447,9 @@ export default function ShopDashboard() {
         </div>
       </div>
 
-      <div style={{ padding: '2rem', maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto' }}>
-        <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>🏪 Shop Dashboard</h2>
-        <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '2rem' }}>Receive and decrypt encrypted files securely</p>
+      <div className="shop-container" style={{ padding: 'clamp(1rem, 5vw, 2rem)', maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' }}>
+        <h2 style={{ fontSize: 'clamp(1.5rem, 5vw, 1.75rem)', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>🏪 Shop Dashboard</h2>
+        <p style={{ color: '#94a3b8', fontSize: 'clamp(0.8rem, 2vw, 0.875rem)', marginBottom: 'clamp(1.5rem, 5vw, 2rem)' }}>Receive and decrypt encrypted files securely</p>
 
         {/* STEP 1 */}
         <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>

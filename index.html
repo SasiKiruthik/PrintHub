@@ -2,26 +2,152 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PrintHub - Secure P2P Printing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes, maximum-scale=5" />
+  <meta name="description" content="SecurePrintHub - Privacy-preserving peer-to-peer encrypted printing system" />
+  <meta name="keywords" content="secure printing, encrypted storage, p2p, privacy" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SecurePrintHub" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  
+  <title>SecurePrintHub - Secure P2P Printing</title>
+  
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
+    
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+    }
+    
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
         'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
         sans-serif;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      -webkit-tap-highlight-color: transparent;
       background: #0f172a;
       color: #f1f5f9;
+      overflow-x: hidden;
     }
+    
     #root {
       width: 100%;
       min-height: 100vh;
+    }
+    
+    input, button, textarea, select {
+      font-family: inherit;
+      font-size: 16px;
+    }
+    
+    button {
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    textarea {
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    
+    /* Print Stylesheet */
+    @media print {
+      * {
+        background: transparent !important;
+        color: #000 !important;
+        box-shadow: none !important;
+        text-shadow: none !important;
+      }
+      
+      body {
+        background: #fff;
+        color: #000;
+        font-size: 12pt;
+        line-height: 1.5;
+      }
+      
+      #root {
+        background: #fff;
+      }
+      
+      header, .navbar, nav, .sidebar, .controls {
+        display: none !important;
+      }
+      
+      main {
+        margin: 0;
+        padding: 0;
+      }
+      
+      a {
+        text-decoration: underline;
+      }
+      
+      a[href]:after {
+        content: "";
+      }
+      
+      img {
+        max-width: 100%;
+      }
+      
+      h1, h2, h3, h4, h5, h6 {
+        page-break-after: avoid;
+      }
+      
+      p, ul, ol {
+        page-break-inside: avoid;
+      }
+      
+      .no-print {
+        display: none !important;
+      }
+    }
+    
+    /* Mobile Optimization */
+    @media (max-width: 640px) {
+      html {
+        font-size: 14px;
+      }
+      
+      body {
+        padding: 0;
+      }
+      
+      input, button, textarea, select {
+        font-size: 16px;
+      }
+      
+      video {
+        object-fit: cover;
+      }
+    }
+    
+    /* Prevents zoom on iOS when input is focused */
+    @media (max-width: 768px) {
+      input[type="text"],
+      input[type="email"],
+      input[type="password"],
+      input[type="number"],
+      textarea {
+        font-size: 16px;
+      }
     }
   </style>
 </head>
