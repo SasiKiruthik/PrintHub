@@ -158,9 +158,9 @@ function UserUpload() {
       setStatus("⏳ Gathering ICE candidates (may take a few seconds)...");
       await waitForIceGathering(peer, 8000);
 
-      // Display offer in base64 for manual copy-paste
-      const offerB64 = btoa(JSON.stringify(peer.localDescription));
-      setOfferSDP(offerB64);
+      // Display offer as JSON (more reliable than base64 on mobile)
+      const offerJSON = JSON.stringify(peer.localDescription);
+      setOfferSDP(offerJSON);
       setShowOfferStep(true);
       setShowAnswerStep(false);
       setStatus("✅ Offer created! Copy the offer and share with shop keeper.");
@@ -204,8 +204,8 @@ function UserUpload() {
 
     try {
       setStatus("🔄 Setting remote answer...");
-      const answerB64 = answerSDP.trim();
-      const answer = JSON.parse(atob(answerB64));
+      const answerJSON = answerSDP.trim();
+      const answer = JSON.parse(answerJSON);
       await peerRef.current.setRemoteDescription(answer);
       setStatus("✅ Answer set! Waiting for data channel to open (this may take 5-10 seconds)...");
       setShowAnswerStep(false);
@@ -312,193 +312,183 @@ function UserUpload() {
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-3xl font-bold mb-2">📱 Secure Upload</h2>
-      <p className="text-slate-400 text-sm mb-6">Send encrypted files directly to the print shop</p>
+    <div>
+      {/* VIDEO SECTION */}
+      <div style={{ marginBottom: '2rem', borderRadius: '12px', overflow: 'hidden', border: '1px solid #333', backgroundColor: '#000' }}>
+        <div style={{ position: 'relative', width: '100%', backgroundColor: '#000', aspectRatio: '16/9', maxHeight: '250px' }}>
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          >
+            <source src="/13232-246463976.mp4" type="video/mp4" />
+          </video>
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent, #0f172a)', opacity: '0.4' }}></div>
+        </div>
+      </div>
 
-      {/* FILE SELECTION */}
-      <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-        <label className="block text-sm font-semibold mb-3">Select File to Print</label>
-        <div className="relative">
+      <div style={{ padding: '2rem', maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto' }}>
+        <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>📱 Secure Upload</h2>
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '2rem' }}>Send encrypted files directly to the print shop</p>
+
+        {/* FILE SELECTION */}
+        <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.75rem', color: 'white' }}>Select File to Print</label>
           <input 
             type="file" 
             onChange={handleFileChange} 
-            className="block w-full p-3 border border-slate-600 rounded-lg bg-slate-900 cursor-pointer hover:bg-slate-800 transition"
+            style={{ width: '100%', padding: '0.5rem', border: '1px solid #444', borderRadius: '6px', backgroundColor: '#0a0a0a', color: 'white', cursor: 'pointer' }}
           />
-        </div>
-        {file && (
-          <div className="mt-3 p-3 rounded-lg bg-slate-800/50">
-            <span className="font-semibold text-emerald-400">✅ {file.name}</span>
-            <div className="text-xs text-slate-400 mt-2">
-              Size: {(file.size / 1024).toFixed(2)} KB<br/>
-              Hash: <span className="font-mono text-emerald-300">{fileHash.substring(0, 16)}...</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* STEP 1: GENERATE PASSCODE */}
-      <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-lg">Step 1: Generate Your Code</h3>
-          {studentPasscode && (
-            <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-              timeRemaining > 60 ? 'bg-emerald-500/20 text-emerald-400' : 
-              timeRemaining > 30 ? 'bg-amber-500/20 text-amber-400' : 
-              timeRemaining > 0 ? 'bg-orange-500/20 text-orange-400' : 
-              'bg-red-500/20 text-red-400'
-            }`}>
-              ⏱️ {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, '0')}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={generateNewPasscode}
-          className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-500 transition"
-        >
-          🔐 Generate 6-Digit Code
-        </button>
-
-        {studentPasscode && (
-          <div className="mt-4 p-4 rounded-lg bg-emerald-600/20 border-2 border-emerald-600">
-            <p className="text-xs text-emerald-300 mb-3">📤 Share this code with shop keeper:</p>
-            <p className="text-5xl font-mono font-bold text-emerald-400 text-center tracking-widest mb-3">
-              {studentPasscode.code}
-            </p>
-            <p className="text-xs text-emerald-300 text-center">
-              Call, SMS, WhatsApp, or tell them in-person
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* STEP 2: SHARE CONNECTION DETAILS */}
-      {studentPasscode && isPasscodeValid(studentPasscode) && (
-        <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-          <h3 className="font-semibold text-lg mb-3">Step 2: Establish Connection</h3>
-          <p className="text-xs text-slate-400 mb-4">Shop keeper provides their code after receiving yours</p>
-          
-          <div className="mb-4">
-            <label className="text-sm text-slate-300 mb-2 block">Shop Keeper's 6-Digit Code:</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="000000"
-                value={shopPasscode}
-                onChange={(e) => setShopPasscode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                maxLength="6"
-                className="w-32 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-3xl font-mono font-bold text-center text-emerald-400 focus:border-emerald-500 focus:outline-none"
-              />
-              <button
-                onClick={createOfferForShop}
-                disabled={shopPasscode.length !== 6}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                ✓ Create Offer
-              </button>
-            </div>
-          </div>
-
-          {/* CONNECTION STATUS */}
-          {(showOfferStep || isConnected) && (
-            <div className={`mt-4 p-3 rounded-lg text-sm font-semibold ${
-              isConnected 
-                ? 'bg-emerald-600/20 border border-emerald-600 text-emerald-300' 
-                : 'bg-blue-600/20 border border-blue-600 text-blue-300'
-            }`}>
-              {isConnected ? '✅ Connected!' : '🔄 ' + connectionStatus}
-            </div>
-          )}
-
-          {/* OFFER DISPLAY */}
-          {showOfferStep && offerSDP && (
-            <div className="mt-4 p-4 rounded-lg bg-blue-600/20 border-2 border-blue-600">
-              <p className="text-sm text-blue-300 mb-3 font-semibold">📤 Share this offer with shop keeper:</p>
-              <textarea
-                readOnly
-                value={offerSDP}
-                className="w-full h-24 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-xs font-mono text-slate-200 resize-none"
-              />
-              <button
-                onClick={copyOfferToClipboard}
-                className="mt-3 w-full bg-slate-700 text-slate-50 px-4 py-2 rounded-lg font-semibold hover:bg-slate-600 text-sm transition"
-              >
-                📋 Copy Offer to Clipboard
-              </button>
-            </div>
-          )}
-
-          {/* ANSWER PASTE */}
-          {showOfferStep && (
-            <div className="mt-4 p-4 rounded-lg bg-amber-600/20 border-2 border-amber-600">
-              <p className="text-sm text-amber-300 mb-3 font-semibold">📥 Paste shop keeper's answer here:</p>
-              <textarea
-                value={answerSDP}
-                onChange={(e) => setAnswerSDP(e.target.value)}
-                placeholder="Paste the answer text here..."
-                className="w-full h-24 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-xs font-mono text-slate-200 resize-none mb-3"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={pasteAnswerFromClipboard}
-                  className="flex-1 bg-slate-700 text-slate-50 px-4 py-2 rounded-lg font-semibold hover:bg-slate-600 text-sm transition"
-                >
-                  📋 Paste from Clipboard
-                </button>
-                <button
-                  onClick={setRemoteAnswer}
-                  disabled={!answerSDP.trim()}
-                  className="flex-1 bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  ✓ Set Answer
-                </button>
+          {file && (
+            <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #333' }}>
+              <span style={{ fontWeight: 'bold', color: '#10b981' }}>✅ {file.name}</span>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                Size: {(file.size / 1024).toFixed(2)} KB<br/>
+                Hash: <span style={{ fontFamily: 'monospace', color: '#10b981' }}>{fileHash.substring(0, 16)}...</span>
               </div>
             </div>
           )}
         </div>
-      )}
 
-      {/* STEP 3: ENCRYPT & SEND */}
-      {isConnected && (
-        <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-          <h3 className="font-semibold text-lg mb-3">Step 3: Encrypt & Send File</h3>
-          <button
-            onClick={handleUpload}
-            disabled={!file || isSending}
-            className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-500 transition disabled:opacity-50 disabled:cursor-not-allowed text-lg"
-          >
-            {isSending ? "🔄 Sending..." : "🚀 Encrypt & Send"}
-          </button>
-          <p className="text-xs text-slate-400 mt-3">
-            File will be encrypted with your passcode and securely sent
-          </p>
-        </div>
-      )}
-
-      {/* STATUS MESSAGES */}
-      {status && (
-        <div className="mt-4 p-4 rounded-lg bg-slate-800/50 border border-slate-700">
-          <p className="text-sm text-slate-300 whitespace-pre-wrap">{status}</p>
-        </div>
-      )}
-
-      {/* CONNECTION DEBUG INFO */}
-      {(dataChannelStatus !== "No connection" || connectionStatus !== "Not connected") && (
-        <div className="text-xs mt-4 p-3 border border-slate-700 rounded-lg bg-slate-900/40">
-          <strong className="text-slate-300">🔌 Connection Status:</strong>
-          <div className="mt-2 space-y-1 text-slate-400">
-            <div>Data Channel: {dataChannelStatus}</div>
-            <div>Peer Connection: {connectionStatus}</div>
+        {/* STEP 1: GENERATE PASSCODE */}
+        <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', color: 'white' }}>Step 1: Generate Your Code</h3>
+            {studentPasscode && (
+              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.25rem 0.75rem', borderRadius: '20px', backgroundColor: '#10b981', color: '#000' }}>
+                ⏱️ {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, '0')}
+              </span>
+            )}
           </div>
+          <button
+            onClick={generateNewPasscode}
+            style={{ backgroundColor: '#10b981', color: '#000', padding: '0.5rem 1rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}
+          >
+            🔐 Generate 6-Digit Code
+          </button>
+
+          {studentPasscode && (
+            <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a4d2e', border: '2px solid #10b981' }}>
+              <p style={{ fontSize: '0.75rem', color: '#10b981', marginBottom: '0.75rem' }}>📤 Share this code with shop keeper:</p>
+              <p style={{ fontSize: '2.5rem', fontFamily: 'monospace', fontWeight: 'bold', color: '#10b981', textAlign: 'center', marginBottom: '0.75rem', letterSpacing: '0.2em' }}>
+                {studentPasscode.code}
+              </p>
+              <p style={{ fontSize: '0.75rem', color: '#10b981', textAlign: 'center' }}>Call, SMS, WhatsApp, or tell them in-person</p>
+            </div>
+          )}
         </div>
-      )}
-      
-      {diagnostics && (
-        <div className="text-xs mt-4 p-3 border border-amber-700 rounded-lg bg-amber-900/20">
-          <strong className="text-amber-300">🔍 Diagnostics:</strong>
-          <div className="mt-2 text-amber-300 font-mono whitespace-pre-wrap break-words">{diagnostics}</div>
-        </div>
-      )}
+
+        {/* STEP 2: ESTABLISH CONNECTION */}
+        {studentPasscode && isPasscodeValid(studentPasscode) && (
+          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 2: Establish Connection</h3>
+            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '1rem' }}>Shop keeper provides their code after receiving yours</p>
+            
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ fontSize: '0.875rem', color: '#cbd5e1', marginBottom: '0.5rem', display: 'block' }}>Shop Keeper's 6-Digit Code:</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  placeholder="000000"
+                  value={shopPasscode}
+                  onChange={(e) => setShopPasscode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength="6"
+                  style={{ width: '8rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 'bold', textAlign: 'center', color: '#10b981' }}
+                />
+                <button
+                  onClick={createOfferForShop}
+                  disabled={shopPasscode.length !== 6}
+                  style={{ backgroundColor: shopPasscode.length === 6 ? '#3b82f6' : '#666', color: 'white', padding: '0.5rem 1rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: shopPasscode.length === 6 ? 'pointer' : 'not-allowed', opacity: shopPasscode.length === 6 ? 1 : 0.5 }}
+                >
+                  ✓ Create Offer
+                </button>
+              </div>
+            </div>
+
+            {(showOfferStep || isConnected) && (
+              <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '6px', fontSize: '0.875rem', fontWeight: 'bold', backgroundColor: isConnected ? '#1a4d2e' : '#1a3a4d', border: isConnected ? '1px solid #10b981' : '1px solid #3b82f6', color: isConnected ? '#10b981' : '#3b82f6' }}>
+                {isConnected ? '✅ Connected!' : '🔄 ' + connectionStatus}
+              </div>
+            )}
+
+            {showOfferStep && offerSDP && (
+              <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a3a4d', border: '2px solid #3b82f6' }}>
+                <p style={{ fontSize: '0.875rem', color: '#3b82f6', marginBottom: '0.75rem', fontWeight: 'bold' }}>📤 Share this offer with shop keeper:</p>
+                <textarea
+                  readOnly
+                  value={offerSDP}
+                  style={{ width: '100%', height: '6rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none' }}
+                />
+                <button
+                  onClick={copyOfferToClipboard}
+                  style={{ marginTop: '0.75rem', width: '100%', backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+                >
+                  📋 Copy Offer to Clipboard
+                </button>
+              </div>
+            )}
+
+            {showOfferStep && (
+              <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#4d3a1a', border: '2px solid #f59e0b' }}>
+                <p style={{ fontSize: '0.875rem', color: '#f59e0b', marginBottom: '0.75rem', fontWeight: 'bold' }}>📥 Paste shop keeper's answer here:</p>
+                <textarea
+                  value={answerSDP}
+                  onChange={(e) => setAnswerSDP(e.target.value)}
+                  placeholder="Paste the answer text here..."
+                  style={{ width: '100%', height: '6rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none', marginBottom: '0.75rem' }}
+                />
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={pasteAnswerFromClipboard}
+                    style={{ flex: 1, backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+                  >
+                    📋 Paste from Clipboard
+                  </button>
+                  <button
+                    onClick={setRemoteAnswer}
+                    disabled={!answerSDP.trim()}
+                    style={{ flex: 1, backgroundColor: answerSDP.trim() ? '#10b981' : '#666', color: '#000', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: answerSDP.trim() ? 'pointer' : 'not-allowed', fontSize: '0.875rem', opacity: answerSDP.trim() ? 1 : 0.5 }}
+                  >
+                    ✓ Set Answer
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 3: ENCRYPT & SEND */}
+        {isConnected && (
+          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 3: Encrypt & Send File</h3>
+            <button
+              onClick={handleUpload}
+              disabled={!file || isSending}
+              style={{ width: '100%', backgroundColor: !file || isSending ? '#666' : '#8b5cf6', color: 'white', padding: '0.75rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: !file || isSending ? 'not-allowed' : 'pointer', fontSize: '1rem', opacity: !file || isSending ? 0.5 : 1 }}
+            >
+              {isSending ? "🔄 Sending..." : "🚀 Encrypt & Send"}
+            </button>
+            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.75rem' }}>
+              File will be encrypted with your passcode and securely sent
+            </p>
+          </div>
+        )}
+
+        {/* STATUS */}
+        {status && (
+          <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #444' }}>
+            <p style={{ fontSize: '0.875rem', color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{status}</p>
+          </div>
+        )}
+        
+        {diagnostics && (
+          <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #444' }}>
+            <p style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1' }}>{diagnostics}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

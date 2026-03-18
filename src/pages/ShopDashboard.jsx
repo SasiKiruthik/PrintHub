@@ -154,8 +154,8 @@ export default function ShopDashboard() {
 
     try {
       setStatus("🔄 Processing offer...");
-      const offerB64 = offerSDP.trim();
-      const offer = JSON.parse(atob(offerB64));
+      const offerJSON = offerSDP.trim();
+      const offer = JSON.parse(offerJSON);
       
       console.log("[Shop] Setting remote offer");
       await peerRef.current.setRemoteDescription(offer);
@@ -168,9 +168,9 @@ export default function ShopDashboard() {
       setStatus("⏳ Gathering ICE candidates...");
       await waitForIceGathering(peerRef.current, 10000);
 
-      // Display answer in base64 for manual copy-paste
-      const answerB64 = btoa(JSON.stringify(peerRef.current.localDescription));
-      setAnswerSDP(answerB64);
+      // Display answer as JSON (more reliable than base64 on mobile)
+      const answerJSON = JSON.stringify(peerRef.current.localDescription);
+      setAnswerSDP(answerJSON);
       setShowAnswerStep(true);
       setStatus("✅ Answer created! Copy and send back to student.");
       
@@ -397,221 +397,215 @@ export default function ShopDashboard() {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-3xl font-bold mb-2">🏪 Shop Dashboard</h2>
-      <p className="text-slate-400 text-sm mb-6">Receive and decrypt encrypted files securely</p>
-
-      {/* STEP 1: ENTER STUDENT PASSCODE */}
-      <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-        <h3 className="font-semibold text-lg mb-3">Step 1: Validate Student Code</h3>
-        <p className="text-xs text-slate-400 mb-3">Student provides their 6-digit code</p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="000000"
-            value={studentPasscodeInput}
-            onChange={(e) => setStudentPasscodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            maxLength="6"
-            className="w-32 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-3xl font-mono font-bold text-center text-emerald-400 focus:border-emerald-500 focus:outline-none"
-          />
-          <button
-            onClick={handleValidateStudentPasscode}
-            disabled={studentPasscodeInput.length !== 6}
-            className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+    <div>
+      {/* VIDEO SECTION */}
+      <div style={{ marginBottom: '2rem', borderRadius: '12px', overflow: 'hidden', border: '1px solid #333', backgroundColor: '#000' }}>
+        <div style={{ position: 'relative', width: '100%', backgroundColor: '#000', aspectRatio: '16/9', maxHeight: '250px' }}>
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           >
-            ✓ Validate
-          </button>
-          <button
-            onClick={handlePastePasscode}
-            className="bg-slate-700 text-slate-50 px-3 py-2 rounded-lg font-semibold hover:bg-slate-600 transition text-sm"
-          >
-            📋 Paste
-          </button>
+            <source src="/13232-246463976.mp4" type="video/mp4" />
+          </video>
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent, #0f172a)', opacity: '0.4' }}></div>
         </div>
       </div>
 
-      {/* CONNECTION STATUS */}
-      {studentPasscodeVerified && (
-        <div className={`mb-4 p-3 rounded-lg text-sm font-semibold ${
-          dataChannelStatus === "✅ DataChannel OPEN"
-            ? 'bg-emerald-600/20 border border-emerald-600 text-emerald-300' 
-            : 'bg-blue-600/20 border border-blue-600 text-blue-300'
-        }`}>
-          {dataChannelStatus === "✅ DataChannel OPEN" ? '✅ Connected!' : '🔄 ' + connectionStatus}
-        </div>
-      )}
+      <div style={{ padding: '2rem', maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto' }}>
+        <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>🏪 Shop Dashboard</h2>
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '2rem' }}>Receive and decrypt encrypted files securely</p>
 
-      {/* STEP 2: RECEIVE OFFER FROM STUDENT */}
-      {studentPasscodeVerified && (
-        <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-          <h3 className="font-semibold text-lg mb-3">Step 2: Establish Connection</h3>
-          <p className="text-xs text-slate-400 mb-3">Student sends their offer - paste it here:</p>
-          <textarea
-            value={offerSDP}
-            onChange={(e) => setOfferSDP(e.target.value)}
-            placeholder="Paste student's offer here..."
-            className="w-full h-24 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-xs font-mono text-slate-200 resize-none mb-3"
-          />
-          <div className="flex gap-2 mb-4">
-            <button
-              onClick={pasteStudentOffer}
-              className="flex-1 bg-slate-700 text-slate-50 px-4 py-2 rounded-lg font-semibold hover:bg-slate-600 text-sm transition"
-            >
-              📋 Paste Offer
-            </button>
-            <button
-              onClick={setStudentOfferAndCreateAnswer}
-              disabled={!offerSDP.trim()}
-              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ✓ Process Offer
-            </button>
-          </div>
-
-          {/* ANSWER DISPLAY */}
-          {showAnswerStep && answerSDP && (
-            <div className="p-4 rounded-lg bg-blue-600/20 border-2 border-blue-600 mb-4">
-              <p className="text-sm text-blue-300 mb-3 font-semibold">📤 Share this answer with student:</p>
-              <textarea
-                readOnly
-                value={answerSDP}
-                className="w-full h-24 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-xs font-mono text-slate-200 resize-none"
-              />
-              <button
-                onClick={copyAnswerToClipboard}
-                className="mt-3 w-full bg-slate-700 text-slate-50 px-4 py-2 rounded-lg font-semibold hover:bg-slate-600 text-sm transition"
-              >
-                📋 Copy Answer to Clipboard
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* STEP 2B: SHOW SHOP PASSCODE */}
-      {studentPasscodeVerified && shopPasscode && (
-        <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-lg">Your Code (for Student)</h3>
-            <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-              timeRemaining > 60 ? 'bg-emerald-500/20 text-emerald-400' : 
-              timeRemaining > 30 ? 'bg-amber-500/20 text-amber-400' : 
-              timeRemaining > 0 ? 'bg-orange-500/20 text-orange-400' : 
-              'bg-red-500/20 text-red-400'
-            }`}>
-              ⏱️ {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, '0')}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mb-3">Show this to the student so they can complete the connection</p>
-          <div className="p-4 rounded-lg bg-blue-600/20 border-2 border-blue-600 mb-3">
-            <p className="text-xs text-blue-300 mb-2">📥 Student enters this code:</p>
-            <p className="text-5xl font-mono font-bold text-blue-400 text-center tracking-widest">
-              {shopPasscode.code}
-            </p>
-          </div>
-          <button
-            onClick={handleCopyShopPasscode}
-            className="w-full bg-slate-700 text-slate-50 px-4 py-2 rounded-lg font-semibold hover:bg-slate-600 transition"
-          >
-            📋 Copy Code to Clipboard
-          </button>
-        </div>
-      )}
-
-      {/* STEP 3: RECEIVE & DECRYPT FILE */}
-      {receivedPayload && (
-        <div className="border border-slate-700 rounded-xl p-4 bg-slate-900/40 space-y-3 mb-4">
-          <h3 className="font-semibold text-lg">Step 3: Decrypt & Print</h3>
-          
-          <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-600">
-            <div className="text-xs text-slate-400 mb-1">📄 File Received:</div>
-            <div className="font-semibold text-emerald-400">{receivedPayload.fileName}</div>
-            <div className="text-xs text-slate-400 mt-2">
-              Size: {(receivedPayload.fileSize / 1024 / 1024).toFixed(2)} MB
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold mb-2">🔐 Student's 6-Digit Passcode</label>
-            <p className="text-xs text-slate-400 mb-3">Enter the student's passcode to decrypt the file</p>
+        {/* STEP 1 */}
+        <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+          <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 1: Validate Student Code</h3>
+          <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Student provides their 6-digit code</p>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
             <input
               type="text"
               placeholder="000000"
               value={studentPasscodeInput}
               onChange={(e) => setStudentPasscodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
               maxLength="6"
-              className="w-40 rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-3xl font-mono font-bold text-center text-emerald-400"
+              style={{ width: '8rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 'bold', textAlign: 'center', color: '#10b981' }}
             />
+            <button
+              onClick={handleValidateStudentPasscode}
+              disabled={studentPasscodeInput.length !== 6}
+              style={{ backgroundColor: studentPasscodeInput.length === 6 ? '#10b981' : '#666', color: studentPasscodeInput.length === 6 ? '#000' : '#fff', padding: '0.5rem 1rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: studentPasscodeInput.length === 6 ? 'pointer' : 'not-allowed', opacity: studentPasscodeInput.length === 6 ? 1 : 0.5 }}
+            >
+              ✓ Validate
+            </button>
+            <button
+              onClick={handlePastePasscode}
+              style={{ backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+            >
+              📋 Paste
+            </button>
           </div>
+        </div>
 
-          <div>
-            <label className="block text-sm font-semibold mb-2">Expected SHA-256 (Optional)</label>
+        {/* STATUS */}
+        {studentPasscodeVerified && (
+          <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '6px', fontSize: '0.875rem', fontWeight: 'bold', backgroundColor: dataChannelStatus === "✅ DataChannel OPEN" ? '#1a4d2e' : '#1a3a4d', border: dataChannelStatus === "✅ DataChannel OPEN" ? '1px solid #10b981' : '1px solid #3b82f6', color: dataChannelStatus === "✅ DataChannel OPEN" ? '#10b981' : '#3b82f6' }}>
+            {dataChannelStatus === "✅ DataChannel OPEN" ? '✅ Connected!' : '🔄 ' + connectionStatus}
+          </div>
+        )}
+
+        {/* STEP 2 */}
+        {studentPasscodeVerified && (
+          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 2: Establish Connection</h3>
+            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Student sends their offer - paste it here:</p>
             <textarea
-              placeholder="Paste SHA-256 fingerprint from student for extra verification..."
-              value={expectedHash}
-              onChange={(e) => setExpectedHash(e.target.value)}
-              rows={2}
-              className="w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2 text-xs font-mono text-slate-200 resize-none"
+              value={offerSDP}
+              onChange={(e) => setOfferSDP(e.target.value)}
+              placeholder="Paste student's offer here..."
+              style={{ width: '100%', height: '6rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none', marginBottom: '0.75rem' }}
             />
-            <p className="text-xs text-slate-400 mt-2">🔒 Optional: Ask student to share SHA-256 for integrity verification</p>
-          </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              <button
+                onClick={pasteStudentOffer}
+                style={{ flex: 1, backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+              >
+                📋 Paste Offer
+              </button>
+              <button
+                onClick={setStudentOfferAndCreateAnswer}
+                disabled={!offerSDP.trim()}
+                style={{ flex: 1, backgroundColor: offerSDP.trim() ? '#3b82f6' : '#666', color: 'white', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: offerSDP.trim() ? 'pointer' : 'not-allowed', opacity: offerSDP.trim() ? 1 : 0.5 }}
+              >
+                ✓ Process Offer
+              </button>
+            </div>
 
-          <div className="flex gap-2">
+            {showAnswerStep && answerSDP && (
+              <div style={{ padding: '1rem', borderRadius: '6px', backgroundColor: '#1a3a4d', border: '2px solid #3b82f6' }}>
+                <p style={{ fontSize: '0.875rem', color: '#3b82f6', marginBottom: '0.75rem', fontWeight: 'bold' }}>📤 Share this answer with student:</p>
+                <textarea
+                  readOnly
+                  value={answerSDP}
+                  style={{ width: '100%', height: '6rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none' }}
+                />
+                <button
+                  onClick={copyAnswerToClipboard}
+                  style={{ marginTop: '0.75rem', width: '100%', backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+                >
+                  📋 Copy Answer to Clipboard
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 2B */}
+        {studentPasscodeVerified && shopPasscode && (
+          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', color: 'white' }}>Your Code (for Student)</h3>
+              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.25rem 0.75rem', borderRadius: '20px', backgroundColor: timeRemaining > 60 ? '#10b981' : '#f59e0b', color: '#000' }}>
+                ⏱️ {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, '0')}
+              </span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Show this to the student so they can complete the connection</p>
+            <div style={{ padding: '1rem', borderRadius: '6px', backgroundColor: '#1a3a4d', border: '2px solid #3b82f6', marginBottom: '0.75rem' }}>
+              <p style={{ fontSize: '0.75rem', color: '#3b82f6', marginBottom: '0.5rem' }}>📥 Student enters this code:</p>
+              <p style={{ fontSize: '2.5rem', fontFamily: 'monospace', fontWeight: 'bold', color: '#3b82f6', textAlign: 'center', letterSpacing: '0.2em' }}>
+                {shopPasscode.code}
+              </p>
+            </div>
             <button
-              onClick={handleDownloadEncrypted}
-              className="flex-1 bg-slate-700 text-slate-50 px-4 py-2 rounded-lg font-semibold hover:bg-slate-600 transition text-sm"
+              onClick={handleCopyShopPasscode}
+              style={{ width: '100%', backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}
             >
-              📥 Save Encrypted
-            </button>
-
-            <button
-              onClick={handlePrint}
-              disabled={!studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting}
-              className="flex-1 bg-sky-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-sky-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isDecrypting ? "🔄 Decrypting..." : "🖨️ Print Now"}
+              📋 Copy Code to Clipboard
             </button>
           </div>
+        )}
 
-          <div className="text-xs text-slate-400 space-y-1 pt-2 border-t border-slate-700">
-            <p>✅ File received via secure WebRTC</p>
-            <p>✅ AES-256-GCM decryption in memory</p>
-            <p>✅ SHA-256 integrity verification</p>
-            <p>✅ No file stored on device</p>
+        {/* STEP 3 */}
+        {receivedPayload && (
+          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
+            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 3: Decrypt & Print</h3>
+            
+            <div style={{ padding: '0.75rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>📄 File Received:</div>
+              <div style={{ fontWeight: 'bold', color: '#10b981' }}>{receivedPayload.fileName}</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                Size: {(receivedPayload.fileSize / 1024 / 1024).toFixed(2)} MB
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>🔐 Student's 6-Digit Passcode</label>
+              <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Enter the student's passcode to decrypt the file</p>
+              <input
+                type="text"
+                placeholder="000000"
+                value={studentPasscodeInput}
+                onChange={(e) => setStudentPasscodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength="6"
+                style={{ width: '8rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 'bold', textAlign: 'center', color: '#10b981' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>Expected SHA-256 (Optional)</label>
+              <textarea
+                placeholder="Paste SHA-256 fingerprint from student for extra verification..."
+                value={expectedHash}
+                onChange={(e) => setExpectedHash(e.target.value)}
+                style={{ width: '100%', height: '3rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none', marginBottom: '0.5rem' }}
+              />
+              <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>🔒 Optional: Ask student to share SHA-256 for integrity verification</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              <button
+                onClick={handleDownloadEncrypted}
+                style={{ flex: 1, backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+              >
+                📥 Save Encrypted
+              </button>
+              <button
+                onClick={handlePrint}
+                disabled={!studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting}
+                style={{ flex: 1, backgroundColor: !studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting ? '#666' : '#0ea5e9', color: 'white', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: !studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting ? 'not-allowed' : 'pointer', opacity: !studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting ? 0.5 : 1 }}
+              >
+                {isDecrypting ? "🔄 Decrypting..." : "🖨️ Print Now"}
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8', paddingTop: '0.75rem', borderTop: '1px solid #444', lineHeight: '1.8' }}>
+              <p>✅ File received via secure WebRTC</p>
+              <p>✅ AES-256-GCM decryption in memory</p>
+              <p>✅ SHA-256 integrity verification</p>
+              <p>✅ No file stored on device</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* STATUS MESSAGES */}
-      {status && (
-        <div className="mt-4 p-4 rounded-lg bg-slate-800/50 border border-slate-700">
-          <p className="text-sm text-slate-300 whitespace-pre-wrap">{status}</p>
-        </div>
-      )}
-
-      {/* CONNECTION DEBUG INFO */}
-      {(dataChannelStatus !== "No connection" || connectionStatus !== "Not connected") && (
-        <div className="text-xs mt-4 p-3 border border-slate-700 rounded-lg bg-slate-900/40">
-          <strong className="text-slate-300">🔌 Connection Status:</strong>
-          <div className="mt-2 space-y-1 text-slate-400">
-            <div>Data Channel: {dataChannelStatus}</div>
-            <div>Peer Connection: {connectionStatus}</div>
+        {/* STATUS */}
+        {status && (
+          <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #444' }}>
+            <p style={{ fontSize: '0.875rem', color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{status}</p>
           </div>
-        </div>
-      )}
-      
-      {diagnostics && (
-        <div className="text-xs mt-4 p-3 border border-amber-700 rounded-lg bg-amber-900/20">
-          <strong className="text-amber-300">🔍 Diagnostics:</strong>
-          <div className="mt-2 text-amber-300 font-mono whitespace-pre-wrap break-words">{diagnostics}</div>
-        </div>
-      )}
+        )}
 
-      {qrError && (
-        <div className="mt-4 p-3 rounded-md bg-red-500/20 border border-red-600 text-red-300 text-xs">
-          {qrError}
-        </div>
-      )}
+        {diagnostics && (
+          <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #444' }}>
+            <p style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1' }}>{diagnostics}</p>
+          </div>
+        )}
+
+        {qrError && (
+          <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '6px', backgroundColor: '#7f1d1d', border: '1px solid #dc2626', color: '#fca5a5', fontSize: '0.75rem' }}>
+            {qrError}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
