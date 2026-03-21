@@ -1,113 +1,72 @@
 import React from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
-import UserUpload from "./pages/UserUpload";
+import StudentUpload from "./pages/StudentUpload";
 import ShopDashboard from "./pages/ShopDashboard";
 
 function App() {
-  console.log("App component mounted");
-  
   return (
-    <BrowserRouter>
-      {/* BACKGROUND VIDEO - Always running */}
+    <HashRouter>
+      {/* Ambient background */}
       <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        zIndex: -2,
-        overflow: 'hidden'
+        position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+        zIndex: -2, overflow: 'hidden', pointerEvents: 'none'
       }}>
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            position: 'absolute',
-            top: 0,
-            left: 0
-          }}
-        >
-          <source src="/170080-842720194.mp4" type="video/mp4" />
-        </video>
-        {/* Overlay to darken video */}
+        {/* Gradient orbs */}
         <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(15, 23, 42, 0.75)',
-          zIndex: 1
-        }}></div>
+          position: 'absolute', top: '-20%', right: '-10%',
+          width: '600px', height: '600px',
+          background: 'radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)',
+          filter: 'blur(60px)', borderRadius: '50%'
+        }} />
+        <div style={{
+          position: 'absolute', bottom: '-20%', left: '-10%',
+          width: '600px', height: '600px',
+          background: 'radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 70%)',
+          filter: 'blur(60px)', borderRadius: '50%'
+        }} />
       </div>
 
-      {/* MAIN CONTENT */}
+      {/* Main content */}
       <div style={{
-        minHeight: '100vh',
-        width: '100%',
-        color: '#f1f5f9',
-        padding: 'clamp(0.5rem, 5vw, 2rem)',
-        margin: 0,
-        overflow: 'auto',
-        position: 'relative',
-        zIndex: 1,
-        boxSizing: 'border-box'
+        minHeight: '100vh', width: '100%',
+        position: 'relative', zIndex: 1
       }}>
-        <header style={{
-          maxWidth: '80rem',
-          margin: '0 auto',
-          marginBottom: 'clamp(1rem, 5vw, 2rem)',
-          paddingTop: '1rem',
-          paddingBottom: '1rem',
-          borderBottom: '1px solid #1e293b',
-          animation: 'slideInDown 0.8s ease-out'
+        {/* Header */}
+        <header className="animate-fadeInDown" style={{
+          maxWidth: '80rem', margin: '0 auto',
+          padding: 'clamp(1rem, 3vw, 1.5rem) clamp(1rem, 5vw, 2rem)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: '12px'
         }}>
-          <style>{`
-            @keyframes slideInDown {
-              from { transform: translateY(-30px); opacity: 0; }
-              to { transform: translateY(0); opacity: 1; }
-            }
-            @media (max-width: 640px) {
-              header {
-                margin-bottom: 1rem !important;
-              }
-            }
-          `}</style>
-          <h1 style={{
-            fontSize: 'clamp(1.25rem, 6vw, 1.5rem)',
-            fontWeight: 'bold',
-            textAlign: 'center',
-            marginBottom: '0.5rem',
-            color: 'white',
-            textShadow: '0 2px 10px rgba(0,0,0,0.5)'
-          }}>🔐 SecurePrintHub</h1>
-          <p style={{
-            textAlign: 'center',
-            color: '#94a3b8',
-            fontSize: 'clamp(0.75rem, 4vw, 0.875rem)',
-            marginTop: '0.25rem'
-          }}>Peer-to-Peer Encrypted Printing</p>
+          <a href="#/" style={{
+            textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px'
+          }}>
+            <span style={{ fontSize: '1.5rem' }}>🔐</span>
+            <span style={{
+              fontSize: 'clamp(1.125rem, 4vw, 1.375rem)',
+              fontWeight: 800, letterSpacing: '-0.02em'
+            }}>
+              <span className="gradient-text">Secure</span>
+              <span style={{ color: 'var(--text-primary)' }}>PrintHub</span>
+            </span>
+          </a>
         </header>
+
         <main style={{
-          maxWidth: '80rem',
-          margin: '0 auto',
-          width: '100%',
-          boxSizing: 'border-box'
+          maxWidth: '80rem', margin: '0 auto', width: '100%',
+          padding: '0 clamp(1rem, 5vw, 2rem)',
+          paddingBottom: '3rem'
         }}>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/user/upload" element={<UserUpload />} />
+            <Route path="/upload" element={<StudentUpload />} />
             <Route path="/shop/dashboard" element={<ShopDashboard />} />
           </Routes>
         </main>
       </div>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

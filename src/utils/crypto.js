@@ -10,12 +10,12 @@ export function generatePasscode() {
   return {
     code,
     timestamp,
-    display: code // For UI display
+    display: code
   };
 }
 
-export function isPasscodeValid(passcodeObj, maxAgeMs = 150000) {
-  // Check if passcode is still within validity window (default 150 seconds = 2:30 minutes)
+export function isPasscodeValid(passcodeObj, maxAgeMs = 300000) {
+  // Check if passcode is still within validity window (default 5 minutes)
   if (!passcodeObj || !passcodeObj.timestamp) {
     return false;
   }
@@ -23,8 +23,8 @@ export function isPasscodeValid(passcodeObj, maxAgeMs = 150000) {
   return age <= maxAgeMs;
 }
 
-export function getTimeRemaining(passcodeObj, maxAgeMs = 150000) {
-  // Get remaining time in seconds (default 150 seconds = 2:30 minutes)
+export function getTimeRemaining(passcodeObj, maxAgeMs = 300000) {
+  // Get remaining time in seconds (default 5 minutes)
   if (!passcodeObj || !passcodeObj.timestamp) {
     return 0;
   }
@@ -37,11 +37,9 @@ export function getTimeRemaining(passcodeObj, maxAgeMs = 150000) {
 // KEY GENERATION FROM PASSCODE
 // ==============================
 export async function deriveKeyFromPasscode(passcode) {
-  // Convert passcode to bytes
   const encoder = new TextEncoder();
   const passcodeBytes = encoder.encode(passcode);
-  
-  // Import passcode as key material
+
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     passcodeBytes,
@@ -49,38 +47,23 @@ export async function deriveKeyFromPasscode(passcode) {
     false,
     ["deriveBits", "deriveKey"]
   );
-  
-  // Derive 256-bit key using PBKDF2 (simple salt for consistency)
+
   const salt = encoder.encode("SecurePrintHub2025");
-  
+
   const derivedKey = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       hash: "SHA-256",
       salt: salt,
-      iterations: 100000 // NIST recommendation for password-based KDF
+      iterations: 100000
     },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
-    false, // not extractable for security
+    false,
     ["encrypt", "decrypt"]
   );
-  
-  return derivedKey;
-}
 
-// ==============================
-// LEGACY: RANDOM KEY GENERATION (KEPT FOR BACKWARDS COMPATIBILITY)
-// ==============================
-export async function generateAESKey() {
-  return await crypto.subtle.generateKey(
-    {
-      name: "AES-GCM",
-      length: 256
-    },
-    true, // must be true so user can share key
-    ["encrypt", "decrypt"]
-  );
+  return derivedKey;
 }
 
 // ==============================
@@ -104,23 +87,7 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-export async function exportKey(key) {
-  const raw = await crypto.subtle.exportKey("raw", key);
-  return arrayBufferToBase64(raw);
-}
-
-export async function importKey(base64) {
-  const raw = base64ToUint8Array(base64);
-  return await crypto.subtle.importKey(
-    "raw",
-    raw,
-    {
-      name: "AES-GCM"
-    },
-    false, // not extractable after import
-    ["decrypt"]
-  );
-}
+export { arrayBufferToBase64, base64ToUint8Array };
 
 // ==============================
 // ENCRYPTION
@@ -156,7 +123,7 @@ export async function decryptFile(encrypted, iv, key) {
       encrypted
     );
   } catch (err) {
-    throw new Error("Decryption failed (invalid key or tampered data)");
+    throw new Error("Decryption failed — wrong passcode or corrupted data");
   }
 }
 

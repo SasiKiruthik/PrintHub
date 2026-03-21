@@ -3,123 +3,199 @@ import { Link } from 'react-router-dom';
 
 export default function Home() {
   return (
-    <div style={{ padding: 'clamp(1rem, 5vw, 2rem) 0', position: 'relative', zIndex: 10 }}>
-      <style>{`
-        @keyframes zoomIn {
-          0% { transform: scale(0.7); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes slideInDown {
-          0% { transform: translateY(-50px); opacity: 0; }
-          100% { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes slideInUp {
-          0% { transform: translateY(50px); opacity: 0; }
-          100% { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.8; }
-        }
-        
-        @media (max-width: 768px) {
-          .home-grid {
-            grid-template-columns: 1fr !important;
-          }
-          .hero-heading {
-            font-size: 1.875rem !important;
-          }
-          .hero-subheading {
-            font-size: 1rem !important;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          .hero-heading {
-            font-size: 1.5rem !important;
-          }
-          .hero-subheading {
-            font-size: 0.875rem !important;
-          }
-          .feature-heading {
-            font-size: 1.25rem !important;
-          }
-        }
-      `}</style>
+    <div style={{ padding: 'clamp(2rem, 6vw, 4rem) 0' }}>
+      
+      {/* HERO */}
+      <div className="animate-fadeInUp" style={{ textAlign: 'center', marginBottom: 'clamp(2.5rem, 8vw, 4rem)' }}>
+        <div style={{
+          display: 'inline-block',
+          padding: '6px 16px',
+          borderRadius: 'var(--radius-full)',
+          background: 'var(--emerald-glow)',
+          border: '1px solid rgba(16,185,129,0.2)',
+          fontSize: '0.8125rem',
+          fontWeight: 600,
+          color: 'var(--emerald-bright)',
+          marginBottom: '1.5rem'
+        }}>
+          ✨ Privacy-First Printing
+        </div>
 
-      {/* HERO VIDEO - ANIMATES IN */}
-      <div style={{ 
-        marginBottom: 'clamp(1.5rem, 5vw, 3rem)', 
-        borderRadius: '12px', 
-        overflow: 'hidden', 
-        border: '2px solid #10b981',
-        backgroundColor: '#000',
-        boxShadow: '0 0 30px rgba(16, 185, 129, 0.3)',
-        animation: 'zoomIn 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)'
-      }}>
-        <div style={{ position: 'relative', width: '100%', backgroundColor: '#000', aspectRatio: '16/9' }}>
-          <video autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}>
-            <source src="/13232-246463976.mp4" type="video/mp4" />
-          </video>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(to bottom, transparent 0%, rgba(15, 23, 42, 0.7) 100%)', opacity: '0.5' }}></div>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ color: 'white', fontSize: 'clamp(1.5rem, 8vw, 2.5rem)', fontWeight: 'bold', textShadow: '0 4px 12px rgba(0,0,0,0.9)', animation: 'pulse 2s ease-in-out infinite' }}>
-              🔐 Secure P2P Printing
+        <h1 style={{
+          fontSize: 'clamp(2rem, 8vw, 3.5rem)',
+          fontWeight: 900,
+          lineHeight: 1.1,
+          letterSpacing: '-0.03em',
+          marginBottom: '1.25rem'
+        }}>
+          <span style={{ color: 'var(--text-primary)' }}>Print documents</span>
+          <br />
+          <span className="gradient-text">without exposing them</span>
+        </h1>
+
+        <p style={{
+          fontSize: 'clamp(1rem, 3vw, 1.2rem)',
+          color: 'var(--text-secondary)',
+          maxWidth: '580px',
+          margin: '0 auto',
+          lineHeight: 1.7
+        }}>
+          Your files are encrypted on your device. The shop prints them
+          <strong style={{ color: 'var(--text-primary)' }}> without ever seeing the content</strong>.
+          No WhatsApp. No USB. No exposure.
+        </p>
+      </div>
+
+      {/* HOW IT WORKS */}
+      <div className="animate-fadeInUp delay-2" style={{ marginBottom: 'clamp(2.5rem, 8vw, 4rem)' }}>
+        <h2 style={{
+          textAlign: 'center',
+          fontSize: 'clamp(1.125rem, 4vw, 1.375rem)',
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          marginBottom: '2rem'
+        }}>
+          How it works
+        </h2>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '1.5rem',
+          maxWidth: '800px',
+          margin: '0 auto'
+        }}>
+          {[
+            { num: '1', icon: '📤', title: 'Upload & Encrypt', desc: 'Pick any file — it gets encrypted right in your browser with AES-256', color: 'var(--emerald)' },
+            { num: '2', icon: '🔢', title: 'Share Passcode', desc: 'Tell the shop your 6-digit passcode verbally. That\'s it — nothing else needed', color: 'var(--blue)' },
+            { num: '3', icon: '🖨️', title: 'Silent Print', desc: 'Shop enters the passcode → document prints directly. They never see the content', color: 'var(--violet)' }
+          ].map((step, i) => (
+            <div key={i} className="glass-card animate-fadeInUp" style={{ animationDelay: `${0.3 + i * 0.15}s`, textAlign: 'center', padding: 'clamp(1.5rem, 4vw, 2rem)' }}>
+              <div style={{
+                fontSize: '2.5rem', marginBottom: '1rem',
+                filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))'
+              }}>{step.icon}</div>
+              <div style={{
+                fontSize: '0.6875rem', fontWeight: 700,
+                color: step.color, textTransform: 'uppercase',
+                letterSpacing: '0.1em', marginBottom: '0.5rem'
+              }}>Step {step.num}</div>
+              <h3 style={{
+                fontSize: '1.125rem', fontWeight: 700,
+                color: 'var(--text-primary)', marginBottom: '0.5rem'
+              }}>{step.title}</h3>
+              <p style={{
+                fontSize: '0.875rem', color: 'var(--text-secondary)',
+                lineHeight: 1.6
+              }}>{step.desc}</p>
             </div>
-          </div>
+          ))}
         </div>
       </div>
 
-      <div style={{ padding: 'clamp(0.5rem, 5vw, 2rem)', maxWidth: '1000px', margin: '0 auto', boxSizing: 'border-box' }}>
-        <h1 className="hero-heading" style={{ color: 'white', fontSize: '2.5rem', fontWeight: 'bold', marginBottom: '1rem', animation: 'slideInDown 0.8s ease-out 0.2s both', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
-          Secure PrintHub
-        </h1>
-        
-        <p className="hero-subheading" style={{ color: '#cbd5e1', marginBottom: 'clamp(1.5rem, 5vw, 3rem)', lineHeight: '1.8', fontSize: '1.1rem', animation: 'slideInDown 0.8s ease-out 0.4s both' }}>
-          Privacy-preserving peer-to-peer printing system. Documents are encrypted locally in your browser using AES-256-GCM. No servers. No tracking. Zero-knowledge.
-        </p>
-
-        <div className="home-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'clamp(1rem, 5vw, 2rem)', marginBottom: 'clamp(1.5rem, 5vw, 3rem)' }}>
-          {/* STUDENT CARD */}
-          <div style={{ border: '2px solid #10b981', padding: 'clamp(1.5rem, 5vw, 2.5rem)', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.05)', backdropFilter: 'blur(10px)', animation: 'slideInUp 0.8s ease-out 0.6s both', boxShadow: '0 0 20px rgba(16, 185, 129, 0.1)', transition: 'all 0.3s ease', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 0 30px rgba(16, 185, 129, 0.3)'; e.currentTarget.style.transform = 'translateY(-5px)'; }} onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 0 20px rgba(16, 185, 129, 0.1)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
-            <h2 style={{ color: '#10b981', marginBottom: '1rem', fontSize: 'clamp(1.25rem, 4vw, 1.5rem)', fontWeight: 'bold' }}>👨‍🎓 For Students</h2>
-            <p style={{ color: '#cbd5e1', marginBottom: '1.5rem', lineHeight: '1.6', fontSize: 'clamp(0.875rem, 3vw, 1rem)' }}>Securely upload your documents. Generate a passcode, encrypt your files, and send them directly to the print shop.</p>
-            <ul style={{ color: '#aaa', marginBottom: '1.5rem', lineHeight: '2', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>
-              <li>✓ Generate 6-digit passcode</li>
-              <li>✓ Encrypt files locally</li>
-              <li>✓ Secure P2P transfer</li>
-            </ul>
-            <Link to="/user/upload" style={{ color: '#000', backgroundColor: '#10b981', padding: 'clamp(0.625rem, 2vw, 0.875rem) clamp(1rem, 3vw, 2rem)', borderRadius: '8px', textDecoration: 'none', display: 'inline-block', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)', fontSize: 'clamp(0.875rem, 2.5vw, 1rem)', transition: 'all 0.3s' }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#059669'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#10b981'; }}>
-              → Start Upload
-            </Link>
+      {/* ROLE CARDS */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+        gap: 'clamp(1.25rem, 4vw, 2rem)',
+        maxWidth: '800px',
+        margin: '0 auto',
+        marginBottom: 'clamp(2.5rem, 8vw, 4rem)'
+      }}>
+        {/* Student Card */}
+        <div className="glass-card glow-emerald animate-fadeInUp delay-4"
+          style={{ cursor: 'default' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            marginBottom: '1rem'
+          }}>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: 'var(--radius-md)',
+              background: 'var(--emerald-glow)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1.5rem'
+            }}>👨‍🎓</div>
+            <div>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>For Students</h3>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Upload from any browser</p>
+            </div>
           </div>
-
-          {/* SHOP CARD */}
-          <div style={{ border: '2px solid #3b82f6', padding: 'clamp(1.5rem, 5vw, 2.5rem)', borderRadius: '12px', backgroundColor: 'rgba(59, 130, 246, 0.05)', backdropFilter: 'blur(10px)', animation: 'slideInUp 0.8s ease-out 0.8s both', boxShadow: '0 0 20px rgba(59, 130, 246, 0.1)', transition: 'all 0.3s ease', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 0 30px rgba(59, 130, 246, 0.3)'; e.currentTarget.style.transform = 'translateY(-5px)'; }} onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.1)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
-            <h2 style={{ color: '#3b82f6', marginBottom: '1rem', fontSize: 'clamp(1.25rem, 4vw, 1.5rem)', fontWeight: 'bold' }}>🏪 For Print Shops</h2>
-            <p style={{ color: '#cbd5e1', marginBottom: '1.5rem', lineHeight: '1.6', fontSize: 'clamp(0.875rem, 3vw, 1rem)' }}>Receive encrypted files from students. Validate their identity with a passcode, decrypt files securely, and print directly without storing anything.</p>
-            <ul style={{ color: '#aaa', marginBottom: '1.5rem', lineHeight: '2', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>
-              <li>✓ Validate student passcode</li>
-              <li>✓ Decrypt in memory only</li>
-              <li>✓ Direct print workflow</li>
-            </ul>
-            <Link to="/shop/dashboard" style={{ color: '#fff', backgroundColor: '#3b82f6', padding: 'clamp(0.625rem, 2vw, 0.875rem) clamp(1rem, 3vw, 2rem)', borderRadius: '8px', textDecoration: 'none', display: 'inline-block', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)', fontSize: 'clamp(0.875rem, 2.5vw, 1rem)', transition: 'all 0.3s' }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2563eb'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#3b82f6'; }}>
-              → Shop Dashboard
-            </Link>
-          </div>
+          <p style={{
+            fontSize: '0.9rem', color: 'var(--text-secondary)',
+            lineHeight: 1.6, marginBottom: '1.5rem'
+          }}>
+            Encrypt your documents locally and send them to any print shop.
+            No personal info shared. No file exposure.
+          </p>
+          <Link to="/upload" className="btn btn-emerald btn-full" style={{ textDecoration: 'none' }}>
+            Upload File →
+          </Link>
         </div>
 
-        {/* FEATURES */}
-        <div style={{ padding: 'clamp(1.5rem, 5vw, 3rem)', borderRadius: '12px', backgroundColor: 'rgba(30, 41, 59, 0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(148, 163, 184, 0.2)', animation: 'slideInUp 0.8s ease-out 1s both' }}>
-          <h3 className="feature-heading" style={{ color: '#10b981', marginBottom: '1.5rem', fontSize: 'clamp(1.25rem, 4vw, 1.5rem)', fontWeight: 'bold' }}>🛡️ Security Features</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.5rem' }}>
-            <div><p style={{ color: '#10b981', fontWeight: 'bold', marginBottom: '0.5rem', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>🔐 AES-256-GCM</p><p style={{ color: '#cbd5e1', fontSize: 'clamp(0.75rem, 2vw, 0.9rem)' }}>Military-grade encryption</p></div>
-            <div><p style={{ color: '#3b82f6', fontWeight: 'bold', marginBottom: '0.5rem', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>🌐 WebRTC P2P</p><p style={{ color: '#cbd5e1', fontSize: 'clamp(0.75rem, 2vw, 0.9rem)' }}>Direct peer-to-peer connection</p></div>
-            <div><p style={{ color: '#f59e0b', fontWeight: 'bold', marginBottom: '0.5rem', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>✓ SHA-256 Verification</p><p style={{ color: '#cbd5e1', fontSize: 'clamp(0.75rem, 2vw, 0.9rem)' }}>File integrity verified</p></div>
-            <div><p style={{ color: '#ec4899', fontWeight: 'bold', marginBottom: '0.5rem', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>🔪 Zero-Knowledge</p><p style={{ color: '#cbd5e1', fontSize: 'clamp(0.75rem, 2vw, 0.9rem)' }}>No storage, no tracking</p></div>
-            <div><p style={{ color: '#8b5cf6', fontWeight: 'bold', marginBottom: '0.5rem', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>📱 Cross-Device</p><p style={{ color: '#cbd5e1', fontSize: 'clamp(0.75rem, 2vw, 0.9rem)' }}>Mobile, laptop, desktop</p></div>
-            <div><p style={{ color: '#06b6d4', fontWeight: 'bold', marginBottom: '0.5rem', fontSize: 'clamp(0.875rem, 2.5vw, 0.95rem)' }}>⚡ Real-Time</p><p style={{ color: '#cbd5e1', fontSize: 'clamp(0.75rem, 2vw, 0.9rem)' }}>Instant file transfer</p></div>
+        {/* Shop Card */}
+        <div className="glass-card glow-blue animate-fadeInUp delay-5"
+          style={{ cursor: 'default' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            marginBottom: '1rem'
+          }}>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: 'var(--radius-md)',
+              background: 'var(--blue-glow)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1.5rem'
+            }}>🏪</div>
+            <div>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>For Print Shops</h3>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Desktop app required</p>
+            </div>
           </div>
+          <p style={{
+            fontSize: '0.9rem', color: 'var(--text-secondary)',
+            lineHeight: 1.6, marginBottom: '1.5rem'
+          }}>
+            Receive encrypted files from students. Enter their passcode to
+            print directly — you never see the document content.
+          </p>
+          <Link to="/shop/dashboard" className="btn btn-blue btn-full" style={{ textDecoration: 'none' }}>
+            Shop Dashboard →
+          </Link>
+        </div>
+      </div>
+
+      {/* SECURITY FEATURES */}
+      <div className="glass-card animate-fadeInUp delay-6" style={{
+        maxWidth: '800px', margin: '0 auto'
+      }}>
+        <h3 style={{
+          fontSize: '1rem', fontWeight: 700,
+          color: 'var(--text-muted)', textTransform: 'uppercase',
+          letterSpacing: '0.08em', marginBottom: '1.25rem',
+          textAlign: 'center'
+        }}>
+          🛡️ Security Stack
+        </h3>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: '1rem'
+        }}>
+          {[
+            { icon: '🔐', label: 'AES-256-GCM', desc: 'Military-grade encryption', color: 'var(--emerald)' },
+            { icon: '🔇', label: 'Silent Print', desc: 'No preview, no viewing', color: 'var(--blue)' },
+            { icon: '✓', label: 'SHA-256', desc: 'Integrity verification', color: 'var(--amber)' },
+            { icon: '🧹', label: 'Auto-Wipe', desc: 'Memory cleared after print', color: 'var(--violet)' },
+            { icon: '📱', label: 'Cross-Device', desc: 'Any browser + desktop', color: 'var(--cyan)' },
+            { icon: '⚡', label: 'Same Network', desc: 'Fast local transfer', color: 'var(--red)' },
+          ].map((f, i) => (
+            <div key={i} style={{ textAlign: 'center', padding: '0.75rem' }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.375rem' }}>{f.icon}</div>
+              <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: f.color, marginBottom: '0.25rem' }}>{f.label}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.desc}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

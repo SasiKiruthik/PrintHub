@@ -1,644 +1,465 @@
-import React, { useState, useRef, useEffect } from "react";
-import QrScanner from "qr-scanner";
+import { useState, useEffect, useRef } from "react";
 import {
-  generatePasscode,
-  isPasscodeValid,
-  getTimeRemaining,
   deriveKeyFromPasscode,
   decryptFile,
   sha256
 } from "../utils/crypto";
-import { acceptConnection, waitForIceGathering, getConnectionStatus, getDataChannelStatus } from "../utils/p2p";
 import { printDecryptedFile } from "../utils/printHandler";
 
+// Check if running inside Electron
+const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+
 export default function ShopDashboard() {
-  const [studentPasscodeInput, setStudentPasscodeInput] = useState("");
-  const [shopPasscode, setShopPasscode] = useState(null); // {code, timestamp}
-  const [studentPasscodeVerified, setStudentPasscodeVerified] = useState(false);
+  const [jobs, setJobs] = useState([]);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [passcodeInput, setPasscodeInput] = useState("");
   const [status, setStatus] = useState("");
-  const [dataChannelStatus, setDataChannelStatus] = useState("No connection");
-  const [connectionStatus, setConnectionStatus] = useState("Not connected");
-  const [receivedPayload, setReceivedPayload] = useState(null);
-  const [expectedHash, setExpectedHash] = useState("");
-  const [timeRemaining, setTimeRemaining] = useState(0);
-  const [offerSDP, setOfferSDP] = useState("");
-  const [answerSDP, setAnswerSDP] = useState("");
-  const [showAnswerStep, setShowAnswerStep] = useState(false);
-  const [isDecrypting, setIsDecrypting] = useState(false);
-  const [diagnostics, setDiagnostics] = useState("");
+  const [statusType, setStatusType] = useState("info");
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [networkInfo, setNetworkInfo] = useState(null);
+  const [printers, setPrinters] = useState([]);
+  const [selectedPrinter, setSelectedPrinter] = useState("");
+  const [isPolling, setIsPolling] = useState(false);
 
-  const peerRef = useRef(null);
-  const dataChannelRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const [qrError, setQrError] = useState("");
-  const messageBufferRef = useRef(""); // Buffer for reassembling chunked messages
+  const pollIntervalRef = useRef(null);
 
-  // Countdown timer for passcodes
+  // Determine API base URL
+  const getApiBase = () => {
+    if (window.location.port === '5173') return 'http://localhost:3000';
+    return '';
+  };
+
+  // Get network info and printers
   useEffect(() => {
-    if (!studentPasscodeVerified && !shopPasscode) {
-      setTimeRemaining(0);
-      return;
-    }
+    if (isElectron) {
+      window.electronAPI.getNetworkInfo().then(setNetworkInfo);
+      window.electronAPI.getPrinters().then((list) => {
+        // SECURITY FEATURE: Block virtual printers (Print to PDF, XPS, OneNote, Fax)
+        // This ensures the shop owner can ONLY print to physical paper, preventing them
+        // from saving the customer's private document as a digital file.
+        const physicalPrinters = list.filter(p => {
+          const name = p.name.toLowerCase();
+          return !name.includes('pdf') && 
+                 !name.includes('xps') && 
+                 !name.includes('onenote') && 
+                 !name.includes('fax');
+        });
 
-    const interval = setInterval(() => {
-      let remaining = 0;
-      if (shopPasscode) {
-        remaining = getTimeRemaining(shopPasscode);
-        setTimeRemaining(remaining);
-        if (remaining === 0) {
-          setShopPasscode(null);
-          setStatus("⏰ Shop passcode expired. Generate a new one to reconnect.");
-        }
+        setPrinters(physicalPrinters);
+        
+        // Select default physical printer if available
+        const defaultPrinter = physicalPrinters.find(p => p.isDefault) || physicalPrinters[0];
+        if (defaultPrinter) setSelectedPrinter(defaultPrinter.name);
+      });
+    }
+  }, []);
+
+  // Poll for new jobs
+  const startPolling = () => {
+    setIsPolling(true);
+    fetchJobs();
+    pollIntervalRef.current = setInterval(fetchJobs, 3000);
+  };
+
+  const stopPolling = () => {
+    setIsPolling(false);
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    startPolling();
+    return () => stopPolling();
+  }, []);
+
+  const fetchJobs = async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/api/jobs`);
+      if (res.ok) {
+        const data = await res.json();
+        setJobs(data.jobs || []);
       }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [shopPasscode, studentPasscodeVerified]);
-
-  // STEP 1: Validate Student's Passcode and create peer
-  const handleValidateStudentPasscode = async () => {
-    if (!studentPasscodeInput.trim() || !/^\d{6}$/.test(studentPasscodeInput.trim())) {
-      alert("Enter student's 6-digit passcode");
-      return;
-    }
-
-    try {
-      setStatus("🔄 Validating passcode and preparing to accept connection...");
-      setConnectionStatus("Initializing...");
-      
-      // Generate shop's response passcode
-      const newShopPasscode = generatePasscode();
-      setShopPasscode(newShopPasscode);
-      setStudentPasscodeVerified(true);
-
-      // Create peer to accept connection
-      const peer = acceptConnection(onReceive, () => {
-        console.log("[Shop] DataChannel opened!");
-        setDataChannelStatus("✅ DataChannel OPEN");
-        setConnectionStatus("✅ Connected");
-        setStatus("✅ Connected! Waiting for encrypted file...");
-      }, undefined, (ch) => {
-        console.log("[Shop] Data channel created");
-        dataChannelRef.current = ch;
-      });
-      peerRef.current = peer;
-
-      peer.onicecandidate = (e) => {
-        console.log("[Shop] ICE candidate:", e.candidate?.candidate || "gathering...");
-      };
-      
-      peer.oniceconnectionstatechange = () => {
-        const state = peer.iceConnectionState;
-        console.log("[Shop] ICE state:", state);
-        
-        if (state === "connected" || state === "completed") {
-          setConnectionStatus("🔗 ICE Connected - Waiting for data channel...");
-        } else if (state === "checking") {
-          setConnectionStatus("🔍 Checking connection...");
-        } else if (state === "failed") {
-          setConnectionStatus("❌ ICE Connection Failed");
-          setStatus("❌ Connection failed. Verify student passcode and try again.");
-        } else if (state === "disconnected") {
-          setConnectionStatus("⚠️ ICE Disconnected");
-        }
-      };
-      
-      peer.onconnectionstatechange = () => {
-        const state = peer.connectionState;
-        console.log("[Shop] Peer connection state:", state);
-        
-        if (state === "connected") {
-          setConnectionStatus("🔗 Peer Connected");
-        } else if (state === "connecting") {
-          setConnectionStatus("🔄 Connecting...");
-        } else if (state === "failed") {
-          setConnectionStatus("❌ Connection Failed");
-          setStatus("❌ Peer connection failed. Check your internet and try again.");
-        } else if (state === "disconnected") {
-          setConnectionStatus("⚠️ Disconnected");
-        }
-      };
-
-      setStatus("✅ Ready to receive offer from student!");
-
-    } catch (err) {
-      console.error(err);
-      const msg = err && err.message ? err.message : String(err);
-      setStatus("❌ Failed to validate: " + msg);
-      setConnectionStatus("Failed");
+    } catch {
+      // Server not running - expected during dev
     }
   };
 
-  // STEP 1.5: Paste student's offer
-  const pasteStudentOffer = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      setOfferSDP(text);
-      setStatus("✅ Offer pasted. Click 'Set Offer' to process.");
-    } catch (err) {
-      console.error("Failed to paste:", err);
-      setStatus("❌ Failed to paste from clipboard.");
-    }
+  const updateStatus = (msg, type = "info") => {
+    setStatus(msg);
+    setStatusType(type);
   };
 
-  // STEP 2: Set student's offer and create answer
-  const setStudentOfferAndCreateAnswer = async () => {
-    if (!offerSDP.trim()) {
-      alert("Paste the student's offer first");
-      return;
-    }
-
-    if (!peerRef.current) {
-      alert("Validate student's passcode first");
-      return;
-    }
-
-    try {
-      setStatus("🔄 Processing offer...");
-      const offerJSON = offerSDP.trim();
-      const offer = JSON.parse(offerJSON);
-      
-      console.log("[Shop] Setting remote offer");
-      await peerRef.current.setRemoteDescription(offer);
-
-      // Create answer
-      setStatus("📝 Creating answer...");
-      const answer = await peerRef.current.createAnswer();
-      await peerRef.current.setLocalDescription(answer);
-      
-      setStatus("⏳ Gathering ICE candidates...");
-      await waitForIceGathering(peerRef.current, 10000);
-
-      // Display answer as JSON (more reliable than base64 on mobile)
-      const answerJSON = JSON.stringify(peerRef.current.localDescription);
-      setAnswerSDP(answerJSON);
-      setShowAnswerStep(true);
-      setStatus("✅ Answer created! Copy and send back to student.");
-      
-      // Start monitoring for data channel (shop receives the data channel from student)
-      let timeout = 0;
-      const maxTimeout = 20000;
-      const checkInterval = 500;
-      
-      const monitorChannel = setInterval(() => {
-        timeout += checkInterval;
-        const connStatus = getConnectionStatus(peerRef.current);
-        const chStatus = dataChannelRef.current ? getDataChannelStatus(dataChannelRef.current) : { readyState: 'waiting for student channel' };
-        
-        setDiagnostics(`ICE: ${connStatus.iceConnectionState} | Peer: ${connStatus.connectionState} | Channel: ${chStatus.readyState}`);
-        
-        if (dataChannelRef.current && dataChannelRef.current.readyState === "open") {
-          clearInterval(monitorChannel);
-          setDataChannelStatus("✅ DataChannel OPEN");
-          setConnectionStatus("✅ Connected");
-          setStatus("✅ Connected! Waiting for encrypted file...");
-          setDiagnostics("");
-        } else if (timeout >= maxTimeout) {
-          clearInterval(monitorChannel);
-          // Don't show timeout error on shop side, just update diagnostics
-          const finalStatus = getConnectionStatus(peerRef.current);
-          setDiagnostics(`Final state - ICE: ${finalStatus.iceConnectionState} | Peer: ${finalStatus.connectionState}`);
-        }
-      }, checkInterval);
-
-    } catch (err) {
-      console.error("Failed to process offer:", err);
-      setStatus("❌ Connection error: " + err.message);
-      setConnectionStatus("Failed");
-      const connStatus = getConnectionStatus(peerRef.current);
-      setDiagnostics(JSON.stringify(connStatus, null, 2));
-    }
+  // Format relative time
+  const timeAgo = (ts) => {
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
   };
 
-  // STEP 2.5: Copy answer to clipboard
-  const copyAnswerToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(answerSDP);
-      setStatus("✅ Answer copied to clipboard! Send it back to student.");
-    } catch (err) {
-      console.error("Failed to copy:", err);
-      setStatus("❌ Failed to copy. Please copy manually.");
-    }
+  const formatSize = (bytes) => {
+    if (!bytes) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   };
 
-  // Receive Encrypted File
-  function onReceive(data) {
-    console.log('[Shop] onReceive called, data type:', typeof data);
-    
-    // Accumulate incoming chunks
-    if (typeof data === 'string') {
-      messageBufferRef.current += data;
-    } else {
-      messageBufferRef.current = data;
-    }
-    
-    // Try to parse the accumulated buffer
-    try {
-      const parsed = typeof messageBufferRef.current === 'string' 
-        ? JSON.parse(messageBufferRef.current) 
-        : messageBufferRef.current;
-      console.log('[Shop] Parsed successfully:', parsed);
-      setReceivedPayload(parsed);
-      setStatus("✅ Encrypted file received! Enter student passcode to decrypt and print.");
-      messageBufferRef.current = ""; // Clear buffer after successful parse
-    } catch (err) {
-      // Not a complete JSON yet, wait for more chunks
-      console.log('[Shop] Incomplete JSON, waiting for more chunks. Buffer size:', messageBufferRef.current.length);
-    }
-  }
+  const getFileIcon = (name) => {
+    if (!name) return '📄';
+    const ext = name.split('.').pop().toLowerCase();
+    const icons = { pdf: '📕', txt: '📝', doc: '📘', docx: '📘', jpg: '🖼️', jpeg: '🖼️', png: '🖼️' };
+    return icons[ext] || '📄';
+  };
 
-  // QR helper: parse scanned QR payload (JSON) and populate fields
-  function handleQrFile(e) {
-    setQrError("");
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-
-    QrScanner.scanImage(file, { returnDetailedScanResult: false })
-      .then((result) => {
-        try {
-          const payload = JSON.parse(result.data || result);
-          if (payload.fileHash) setExpectedHash(payload.fileHash);
-          setQrError("");
-        } catch (err) {
-          console.error("Failed to parse QR payload:", err);
-          setQrError("QR content is not valid JSON or missing expected fields.");
-        }
-      })
-      .catch((err) => {
-        console.error("QR scan failed:", err);
-        setQrError("Failed to scan QR image.");
-      });
-  }
-
-  // STEP 3: Decrypt + Verify + Print
-  async function handlePrint() {
-    if (!receivedPayload) return;
-    if (!studentPasscodeInput.trim()) {
-      setStatus("❌ Enter the student's 6-digit passcode to decrypt.");
+  // DECRYPT & PRINT
+  const handlePrint = async () => {
+    if (!selectedJob || !passcodeInput.trim()) {
+      updateStatus("Select a job and enter the passcode.", "error");
       return;
     }
 
-    // Validate passcode format
-    if (!/^\d{6}$/.test(studentPasscodeInput.trim())) {
-      setStatus("❌ Passcode must be exactly 6 digits.");
+    if (!/^\d{6}$/.test(passcodeInput.trim())) {
+      updateStatus("Passcode must be exactly 6 digits.", "error");
       return;
     }
 
     try {
-      setIsDecrypting(true);
-      setStatus("🔓 Decrypting file...");
-      const encrypted = new Uint8Array(receivedPayload.encrypted).buffer;
-      const iv = new Uint8Array(receivedPayload.iv);
-      const originalHash = receivedPayload.hash;
+      setIsPrinting(true);
+      updateStatus("Fetching encrypted file...", "loading");
 
-      // Derive AES key from student's passcode
-      const key = await deriveKeyFromPasscode(studentPasscodeInput.trim());
+      // Get the full encrypted data for this job
+      const res = await fetch(`${getApiBase()}/api/jobs/${selectedJob.id}`);
+      if (!res.ok) throw new Error("Job not found or expired");
+      const jobData = await res.json();
 
+      updateStatus("Decrypting file...", "loading");
+
+      // Reconstruct binary data
+      const encrypted = new Uint8Array(jobData.encrypted).buffer;
+      const iv = new Uint8Array(jobData.iv);
+
+      // Derive key from passcode
+      const key = await deriveKeyFromPasscode(passcodeInput.trim());
+
+      // Decrypt
       const decrypted = await decryptFile(encrypted, iv, key);
 
-      setStatus("✔️ Verifying file integrity...");
+      // Verify integrity
+      updateStatus("Verifying integrity...", "loading");
       const newHash = await sha256(decrypted);
-
-      // Verify against the hash carried in the payload
-      if (newHash !== originalHash) {
-        setStatus("❌ Integrity verification failed. Print aborted.");
-        setIsDecrypting(false);
-        return;
+      if (jobData.hash && newHash !== jobData.hash) {
+        throw new Error("Integrity check failed — file may be corrupted");
       }
 
-      // If staff provided an expected hash (out-of-band from student), verify it too
-      if (expectedHash && expectedHash.trim() !== "") {
-        if (expectedHash.trim() !== newHash) {
-          setStatus("❌ Expected fingerprint doesn't match. Print aborted.");
-          setIsDecrypting(false);
-          return;
-        }
+      // Print!
+      updateStatus("Sending to printer...", "loading");
+
+      if (!selectedPrinter) {
+        throw new Error("SECURITY BLOCK: No physical hardware printer selected. Virtual 'Save to PDF' printers are disabled to ensure the document cannot be saved digitally.");
       }
 
-      // Print using smart handler
-      setStatus("🞨 Opening print dialog...");
-      
-      // Get the file name from payload
-      const fileName = receivedPayload.fileName || "document";
-      
+      const result = await printDecryptedFile(decrypted, jobData.fileName, selectedPrinter);
+
+      // Delete job from server after successful print
       try {
-        const result = await printDecryptedFile(decrypted, fileName);
-        
-        // Clear memory after successful print
-        setReceivedPayload(null);
-        setStudentPasscodeInput("");
-        setStatus(`✅ ${result.message} Memory cleared.`);
-        setIsDecrypting(false);
-      } catch (printErr) {
-        setStatus(`❌ Print error: ${printErr.message}`);
-        setIsDecrypting(false);
+        await fetch(`${getApiBase()}/api/jobs/${selectedJob.id}`, { method: 'DELETE' });
+      } catch {
+        // Non-critical
       }
 
-    } catch (err) {
-      console.error(err);
-      setStatus("❌ Decryption failed. Check the passcode and try again.");
-      setIsDecrypting(false);
-    }
-  }
+      // Clear state
+      setSelectedJob(null);
+      setPasscodeInput("");
+      updateStatus(result.message || "Document printed successfully!", "success");
+      fetchJobs(); // Refresh job list
 
-  // Paste passcode from clipboard
-  async function handlePastePasscode() {
+    } catch (err) {
+      console.error("Print failed:", err);
+      updateStatus(`Failed: ${err.message}`, "error");
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  // Delete a job manually
+  const handleDeleteJob = async (jobId) => {
     try {
-      const text = await navigator.clipboard.readText();
-      if (!text || !text.trim()) {
-        setStatus('❌ Clipboard is empty.');
-        return;
+      await fetch(`${getApiBase()}/api/jobs/${jobId}`, { method: 'DELETE' });
+      if (selectedJob && selectedJob.id === jobId) {
+        setSelectedJob(null);
+        setPasscodeInput("");
       }
-      setStudentPasscodeInput(text.trim().substring(0, 6));
-      setStatus('✅ Passcode pasted from clipboard.');
-    } catch (err) {
-      console.error('Clipboard read failed', err);
-      setStatus('❌ Unable to read clipboard. Please allow clipboard access or paste manually.');
+      fetchJobs();
+      updateStatus("Job deleted from memory.", "success");
+    } catch {
+      updateStatus("Failed to delete job.", "error");
     }
-  }
-
-  // Copy shop passcode to clipboard
-  async function handleCopyShopPasscode() {
-    try {
-      if (!shopPasscode || !shopPasscode.code) {
-        setStatus('❌ No passcode to copy.');
-        return;
-      }
-      await navigator.clipboard.writeText(shopPasscode.code);
-      setStatus('✅ Shop passcode copied to clipboard.');
-    } catch (err) {
-      console.error('Clipboard write failed', err);
-      setStatus('❌ Unable to copy to clipboard. Please copy manually.');
-    }
-  }
-
-  // Download the ciphertext as a .enc file (ciphertext only)
-  function handleDownloadEncrypted() {
-    if (!receivedPayload) return;
-    try {
-      const arr = new Uint8Array(receivedPayload.encrypted);
-      const blob = new Blob([arr], { type: 'application/octet-stream' });
-      const a = document.createElement('a');
-      const name = receivedPayload.fileName ? `${receivedPayload.fileName}.enc` : 'file.enc';
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        URL.revokeObjectURL(a.href);
-        document.body.removeChild(a);
-      }, 500);
-      setStatus('✅ Encrypted file downloaded (ciphertext only). Decryption happens only at print time.');
-    } catch (err) {
-      console.error('Download failed', err);
-      setStatus('❌ Failed to download encrypted file.');
-    }
-  }
+  };
 
   return (
-    <div>
-      <style>{`
-        @media (max-width: 768px) {
-          .shop-container {
-            padding: 1rem !important;
-          }
-          > div > div:first-child {
-            max-height: 150px !important;
-          }
-          textarea {
-            font-size: 16px !important;
-            height: 5rem !important;
-          }
-          input[type="text"] {
-            font-size: 16px !important;
-          }
-        }
-        @media (max-width: 480px) {
-          .shop-container {
-            padding: 0.75rem !important;
-            max-width: 100% !important;
-          }
-          textarea {
-            height: 4rem !important;
-            font-size: 12px !important;
-          }
-          .button-group {
-            flex-direction: column !important;
-          }
-          .button-group button {
-            width: 100% !important;
-          }
-        }
-      `}</style>
-      
-      {/* VIDEO SECTION */}
-      <div style={{ marginBottom: 'clamp(1rem, 5vw, 2rem)', borderRadius: '12px', overflow: 'hidden', border: '1px solid #333', backgroundColor: '#000' }}>
-        <div style={{ position: 'relative', width: '100%', backgroundColor: '#000', aspectRatio: '16/9', maxHeight: 'clamp(150px, 30vw, 250px)' }}>
-          <video
-            autoPlay
-            muted
-            loop
-            playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          >
-            <source src="/13232-246463976.mp4" type="video/mp4" />
-          </video>
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent, #0f172a)', opacity: '0.4' }}></div>
-        </div>
+    <div style={{ maxWidth: '680px', margin: '0 auto', padding: 'clamp(1.5rem, 5vw, 3rem) 0' }}>
+
+      {/* Header */}
+      <div className="animate-fadeInUp" style={{ marginBottom: '2rem' }}>
+        <h2 style={{
+          fontSize: 'clamp(1.5rem, 5vw, 2rem)', fontWeight: 800,
+          letterSpacing: '-0.02em', marginBottom: '0.5rem'
+        }}>
+          <span style={{ color: 'var(--blue-bright)' }}>🏪</span>{' '}
+          <span className="gradient-text">Shop Dashboard</span>
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>
+          Receive encrypted files and print them securely
+        </p>
       </div>
 
-      <div className="shop-container" style={{ padding: 'clamp(1rem, 5vw, 2rem)', maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' }}>
-        <h2 style={{ fontSize: 'clamp(1.5rem, 5vw, 1.75rem)', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>🏪 Shop Dashboard</h2>
-        <p style={{ color: '#94a3b8', fontSize: 'clamp(0.8rem, 2vw, 0.875rem)', marginBottom: 'clamp(1.5rem, 5vw, 2rem)' }}>Receive and decrypt encrypted files securely</p>
+      {/* NETWORK INFO (Electron) */}
+      {(isElectron && networkInfo) && (
+        <div className="glass-card animate-fadeInUp delay-1" style={{
+          marginBottom: '1.25rem',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
+          background: 'rgba(59, 130, 246, 0.05)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '0.75rem' }}>
+            <span style={{ fontSize: '1.25rem' }}>📡</span>
+            <h3 style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--blue-bright)' }}>
+              Student Connection URL
+            </h3>
+          </div>
+          {networkInfo.ips.map((ip, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: '10px',
+              marginBottom: i < networkInfo.ips.length - 1 ? '8px' : 0
+            }}>
+              <code style={{
+                flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg-input)', fontFamily: 'monospace',
+                fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)'
+              }}>
+                https://{ip.address}:{networkInfo.port}
+              </code>
+              <button className="btn btn-ghost" style={{ padding: '10px 14px', fontSize: '0.8125rem' }}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(`https://${ip.address}:${networkInfo.port}`);
+                    updateStatus("URL copied!", "success");
+                  } catch { }
+                }}>📋</button>
+            </div>
+          ))}
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
+            Students open this secure URL in Chrome and click "Advanced → Proceed"
+          </p>
+        </div>
+      )}
 
-        {/* STEP 1 */}
-        <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
-          <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 1: Validate Student Code</h3>
-          <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Student provides their 6-digit code</p>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+      {/* PRINTER SELECTION (Electron) */}
+      {isElectron && printers.length > 0 && (
+        <div className="glass-card animate-fadeInUp delay-2" style={{ marginBottom: '1.25rem' }}>
+          <div className="section-step">
+            <span style={{ fontSize: '1.25rem' }}>🖨️</span>
+            <h3 style={{ fontSize: '0.9375rem', fontWeight: 700 }}>Printer</h3>
+          </div>
+          <select
+            className="input"
+            value={selectedPrinter}
+            onChange={(e) => setSelectedPrinter(e.target.value)}
+            style={{ cursor: 'pointer' }}
+          >
+            {printers.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.displayName} {p.isDefault ? '(Default)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* INCOMING JOBS */}
+      <div className="glass-card animate-fadeInUp delay-2" style={{ marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div className="section-step" style={{ marginBottom: 0 }}>
+            <div className="step-number blue">1</div>
+            <h3 style={{ fontSize: '1.0625rem', fontWeight: 700 }}>Print Queue</h3>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {isPolling && (
+              <span className="badge badge-emerald" style={{ fontSize: '0.6875rem' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--emerald)', display: 'inline-block', animation: 'pulse 1.5s infinite' }} />
+                Live
+              </span>
+            )}
+            <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
+              onClick={fetchJobs}>
+              🔄 Refresh
+            </button>
+          </div>
+        </div>
+
+        {jobs.length === 0 ? (
+          <div style={{
+            textAlign: 'center', padding: '2.5rem 1rem',
+            color: 'var(--text-muted)', fontSize: '0.9375rem'
+          }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem', opacity: 0.5 }}>📭</div>
+            <p>No print jobs yet</p>
+            <p style={{ fontSize: '0.8125rem', marginTop: '0.375rem' }}>
+              Waiting for students to upload files...
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {jobs.map((job) => (
+              <div
+                key={job.id}
+                className={`job-card ${selectedJob?.id === job.id ? 'selected' : ''}`}
+                onClick={() => {
+                  setSelectedJob(job);
+                  setPasscodeInput("");
+                }}
+                style={{ cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: 1 }}>
+                    <span style={{ fontSize: '1.5rem' }}>{getFileIcon(job.fileName)}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{
+                        fontWeight: 600, fontSize: '0.9375rem', color: 'var(--text-primary)',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                      }}>
+                        {job.fileName}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {formatSize(job.fileSize)} • {timeAgo(job.timestamp)} • ID: {job.id}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', flexShrink: 0 }}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteJob(job.id); }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* STEP 2: PASSCODE & PRINT */}
+      {selectedJob && (
+        <div className="glass-card animate-scaleIn" style={{
+          marginBottom: '1.25rem',
+          border: '1px solid rgba(16, 185, 129, 0.2)'
+        }}>
+          <div className="section-step">
+            <div className="step-number emerald">2</div>
+            <h3 style={{ fontSize: '1.0625rem', fontWeight: 700 }}>Decrypt & Print</h3>
+          </div>
+
+          <div style={{
+            padding: '12px', borderRadius: 'var(--radius-sm)',
+            background: 'var(--bg-input)', marginBottom: '1rem',
+            display: 'flex', alignItems: 'center', gap: '10px'
+          }}>
+            <span style={{ fontSize: '1.25rem' }}>{getFileIcon(selectedJob.fileName)}</span>
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                {selectedJob.fileName}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {formatSize(selectedJob.fileSize)}
+              </div>
+            </div>
+          </div>
+
+          <label style={{
+            display: 'block', fontSize: '0.875rem', fontWeight: 600,
+            color: 'var(--text-secondary)', marginBottom: '0.5rem'
+          }}>
+            Enter Student's 6-Digit Passcode
+          </label>
+
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
             <input
               type="text"
+              className="input input-passcode"
               placeholder="000000"
-              value={studentPasscodeInput}
-              onChange={(e) => setStudentPasscodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              value={passcodeInput}
+              onChange={(e) => setPasscodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
               maxLength="6"
-              style={{ width: '8rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 'bold', textAlign: 'center', color: '#10b981' }}
+              autoFocus
             />
-            <button
-              onClick={handleValidateStudentPasscode}
-              disabled={studentPasscodeInput.length !== 6}
-              style={{ backgroundColor: studentPasscodeInput.length === 6 ? '#10b981' : '#666', color: studentPasscodeInput.length === 6 ? '#000' : '#fff', padding: '0.5rem 1rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: studentPasscodeInput.length === 6 ? 'pointer' : 'not-allowed', opacity: studentPasscodeInput.length === 6 ? 1 : 0.5 }}
-            >
-              ✓ Validate
-            </button>
-            <button
-              onClick={handlePastePasscode}
-              style={{ backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
-            >
-              📋 Paste
-            </button>
+            <button className="btn btn-ghost" style={{ padding: '12px' }}
+              onClick={async () => {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  setPasscodeInput(text.trim().replace(/\D/g, '').slice(0, 6));
+                } catch { }
+              }}>📋 Paste</button>
+          </div>
+
+          <button
+            className="btn btn-emerald btn-lg btn-full"
+            onClick={handlePrint}
+            disabled={passcodeInput.length !== 6 || isPrinting}
+          >
+            {isPrinting ? (
+              <>
+                <span className="spinner" />
+                {isElectron ? 'Printing silently...' : 'Printing...'}
+              </>
+            ) : (
+              <>{isElectron ? '🔇 Silent Print' : '🖨️ Print'}</>
+            )}
+          </button>
+
+          <div style={{
+            marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem',
+            fontSize: '0.75rem', color: 'var(--text-muted)'
+          }}>
+            <span>✅ AES-256-GCM decryption</span>
+            <span>•</span>
+            <span>✅ SHA-256 verification</span>
+            <span>•</span>
+            <span>✅ {isElectron ? 'Silent print (no preview)' : 'Browser print dialog'}</span>
+            <span>•</span>
+            <span>✅ Auto-delete after print</span>
           </div>
         </div>
+      )}
 
-        {/* STATUS */}
-        {studentPasscodeVerified && (
-          <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '6px', fontSize: '0.875rem', fontWeight: 'bold', backgroundColor: dataChannelStatus === "✅ DataChannel OPEN" ? '#1a4d2e' : '#1a3a4d', border: dataChannelStatus === "✅ DataChannel OPEN" ? '1px solid #10b981' : '1px solid #3b82f6', color: dataChannelStatus === "✅ DataChannel OPEN" ? '#10b981' : '#3b82f6' }}>
-            {dataChannelStatus === "✅ DataChannel OPEN" ? '✅ Connected!' : '🔄 ' + connectionStatus}
-          </div>
-        )}
-
-        {/* STEP 2 */}
-        {studentPasscodeVerified && (
-          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
-            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 2: Establish Connection</h3>
-            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Student sends their offer - paste it here:</p>
-            <textarea
-              value={offerSDP}
-              onChange={(e) => setOfferSDP(e.target.value)}
-              placeholder="Paste student's offer here..."
-              style={{ width: '100%', height: '6rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none', marginBottom: '0.75rem' }}
-            />
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              <button
-                onClick={pasteStudentOffer}
-                style={{ flex: 1, backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
-              >
-                📋 Paste Offer
-              </button>
-              <button
-                onClick={setStudentOfferAndCreateAnswer}
-                disabled={!offerSDP.trim()}
-                style={{ flex: 1, backgroundColor: offerSDP.trim() ? '#3b82f6' : '#666', color: 'white', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: offerSDP.trim() ? 'pointer' : 'not-allowed', opacity: offerSDP.trim() ? 1 : 0.5 }}
-              >
-                ✓ Process Offer
-              </button>
-            </div>
-
-            {showAnswerStep && answerSDP && (
-              <div style={{ padding: '1rem', borderRadius: '6px', backgroundColor: '#1a3a4d', border: '2px solid #3b82f6' }}>
-                <p style={{ fontSize: '0.875rem', color: '#3b82f6', marginBottom: '0.75rem', fontWeight: 'bold' }}>📤 Share this answer with student:</p>
-                <textarea
-                  readOnly
-                  value={answerSDP}
-                  style={{ width: '100%', height: '6rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none' }}
-                />
-                <button
-                  onClick={copyAnswerToClipboard}
-                  style={{ marginTop: '0.75rem', width: '100%', backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
-                >
-                  📋 Copy Answer to Clipboard
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* STEP 2B */}
-        {studentPasscodeVerified && shopPasscode && (
-          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', color: 'white' }}>Your Code (for Student)</h3>
-              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.25rem 0.75rem', borderRadius: '20px', backgroundColor: timeRemaining > 60 ? '#10b981' : '#f59e0b', color: '#000' }}>
-                ⏱️ {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, '0')}
-              </span>
-            </div>
-            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Show this to the student so they can complete the connection</p>
-            <div style={{ padding: '1rem', borderRadius: '6px', backgroundColor: '#1a3a4d', border: '2px solid #3b82f6', marginBottom: '0.75rem' }}>
-              <p style={{ fontSize: '0.75rem', color: '#3b82f6', marginBottom: '0.5rem' }}>📥 Student enters this code:</p>
-              <p style={{ fontSize: '2.5rem', fontFamily: 'monospace', fontWeight: 'bold', color: '#3b82f6', textAlign: 'center', letterSpacing: '0.2em' }}>
-                {shopPasscode.code}
-              </p>
-            </div>
-            <button
-              onClick={handleCopyShopPasscode}
-              style={{ width: '100%', backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}
-            >
-              📋 Copy Code to Clipboard
-            </button>
-          </div>
-        )}
-
-        {/* STEP 3 */}
-        {receivedPayload && (
-          <div style={{ border: '1px solid #444', borderRadius: '8px', padding: '1rem', backgroundColor: '#1a1a1a', marginBottom: '1rem' }}>
-            <h3 style={{ fontWeight: 'bold', fontSize: '1.125rem', marginBottom: '0.75rem', color: 'white' }}>Step 3: Decrypt & Print</h3>
-            
-            <div style={{ padding: '0.75rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>📄 File Received:</div>
-              <div style={{ fontWeight: 'bold', color: '#10b981' }}>{receivedPayload.fileName}</div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>
-                Size: {(receivedPayload.fileSize / 1024 / 1024).toFixed(2)} MB
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>🔐 Student's 6-Digit Passcode</label>
-              <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Enter the student's passcode to decrypt the file</p>
-              <input
-                type="text"
-                placeholder="000000"
-                value={studentPasscodeInput}
-                onChange={(e) => setStudentPasscodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                maxLength="6"
-                style={{ width: '8rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '1.5rem', fontFamily: 'monospace', fontWeight: 'bold', textAlign: 'center', color: '#10b981' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'white' }}>Expected SHA-256 (Optional)</label>
-              <textarea
-                placeholder="Paste SHA-256 fingerprint from student for extra verification..."
-                value={expectedHash}
-                onChange={(e) => setExpectedHash(e.target.value)}
-                style={{ width: '100%', height: '3rem', borderRadius: '6px', backgroundColor: '#0a0a0a', border: '1px solid #444', padding: '0.5rem', fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1', resize: 'none', marginBottom: '0.5rem' }}
-              />
-              <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>🔒 Optional: Ask student to share SHA-256 for integrity verification</p>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              <button
-                onClick={handleDownloadEncrypted}
-                style={{ flex: 1, backgroundColor: '#444', color: '#cbd5e1', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
-              >
-                📥 Save Encrypted
-              </button>
-              <button
-                onClick={handlePrint}
-                disabled={!studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting}
-                style={{ flex: 1, backgroundColor: !studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting ? '#666' : '#0ea5e9', color: 'white', padding: '0.5rem', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: !studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting ? 'not-allowed' : 'pointer', opacity: !studentPasscodeInput || studentPasscodeInput.length !== 6 || isDecrypting ? 0.5 : 1 }}
-              >
-                {isDecrypting ? "🔄 Decrypting..." : "🖨️ Print Now"}
-              </button>
-            </div>
-
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8', paddingTop: '0.75rem', borderTop: '1px solid #444', lineHeight: '1.8' }}>
-              <p>✅ File received via secure WebRTC</p>
-              <p>✅ AES-256-GCM decryption in memory</p>
-              <p>✅ SHA-256 integrity verification</p>
-              <p>✅ No file stored on device</p>
-            </div>
-          </div>
-        )}
-
-        {/* STATUS */}
-        {status && (
-          <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #444' }}>
-            <p style={{ fontSize: '0.875rem', color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{status}</p>
-          </div>
-        )}
-
-        {diagnostics && (
-          <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '6px', backgroundColor: '#1a1a1a', border: '1px solid #444' }}>
-            <p style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#cbd5e1' }}>{diagnostics}</p>
-          </div>
-        )}
-
-        {qrError && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '6px', backgroundColor: '#7f1d1d', border: '1px solid #dc2626', color: '#fca5a5', fontSize: '0.75rem' }}>
-            {qrError}
-          </div>
-        )}
-      </div>
+      {/* STATUS */}
+      {status && (
+        <div className="animate-fadeIn" style={{
+          padding: '14px 18px',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '0.875rem',
+          fontWeight: 500,
+          background: statusType === 'success' ? 'var(--emerald-glow)' :
+                     statusType === 'error' ? 'var(--red-glow)' :
+                     statusType === 'loading' ? 'var(--blue-glow)' :
+                     'var(--bg-glass)',
+          color: statusType === 'success' ? 'var(--emerald-bright)' :
+                 statusType === 'error' ? 'var(--red)' :
+                 statusType === 'loading' ? 'var(--blue-bright)' :
+                 'var(--text-secondary)',
+          border: `1px solid ${
+            statusType === 'success' ? 'rgba(16,185,129,0.2)' :
+            statusType === 'error' ? 'rgba(239,68,68,0.2)' :
+            statusType === 'loading' ? 'rgba(59,130,246,0.2)' :
+            'var(--border-subtle)'
+          }`,
+          display: 'flex', alignItems: 'center', gap: '8px'
+        }}>
+          {statusType === 'loading' && <span className="spinner" />}
+          {status}
+        </div>
+      )}
     </div>
   );
 }
