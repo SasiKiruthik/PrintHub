@@ -135,7 +135,7 @@ function createImageHTML(dataUrl, fileName) {
 // ==============================
 // MAIN PRINT HANDLER
 // ==============================
-export async function printDecryptedFile(decryptedBuffer, fileName, printerName) {
+export async function printDecryptedFile(decryptedBuffer, fileName, printerName, printOptions = {}) {
   try {
     if (!decryptedBuffer || !fileName) {
       throw new Error('Missing decrypted data or file name');
@@ -143,7 +143,7 @@ export async function printDecryptedFile(decryptedBuffer, fileName, printerName)
 
     // === PDF ===
     if (isPdf(fileName)) {
-      return await printPDF(decryptedBuffer, fileName, printerName);
+      return await printPDF(decryptedBuffer, fileName, printerName, printOptions);
     }
 
     // === TEXT ===
@@ -151,7 +151,7 @@ export async function printDecryptedFile(decryptedBuffer, fileName, printerName)
       const decoder = new TextDecoder('utf-8');
       const text = decoder.decode(decryptedBuffer);
       const html = createTextHTML(text, fileName);
-      return await printHTML(html, fileName, printerName);
+      return await printHTML(html, fileName, printerName, printOptions);
     }
 
     // === IMAGE ===
@@ -160,7 +160,7 @@ export async function printDecryptedFile(decryptedBuffer, fileName, printerName)
       const base64 = bufferToBase64(decryptedBuffer);
       const dataUrl = `data:${mimeType};base64,${base64}`;
       const html = createImageHTML(dataUrl, fileName);
-      return await printHTML(html, fileName, printerName);
+      return await printHTML(html, fileName, printerName, printOptions);
     }
 
     // === UNSUPPORTED ===
@@ -175,11 +175,11 @@ export async function printDecryptedFile(decryptedBuffer, fileName, printerName)
 // ==============================
 // ELECTRON SILENT PRINT (HTML)
 // ==============================
-async function printHTML(htmlContent, fileName, printerName) {
+async function printHTML(htmlContent, fileName, printerName, printOptions = {}) {
   if (isElectron()) {
     // ELECTRON: Silent print — no preview!
     console.log(`[Print] Silent printing ${fileName} via Electron`);
-    const result = await window.electronAPI.silentPrint(htmlContent, printerName);
+    const result = await window.electronAPI.silentPrint(htmlContent, printerName, printOptions);
     return result;
   } else {
     // BROWSER FALLBACK: Use iframe + print dialog
@@ -190,13 +190,13 @@ async function printHTML(htmlContent, fileName, printerName) {
 // ==============================
 // ELECTRON SILENT PRINT (PDF)
 // ==============================
-async function printPDF(buffer, fileName, printerName) {
+async function printPDF(buffer, fileName, printerName, printOptions = {}) {
   const base64 = bufferToBase64(buffer);
 
   if (isElectron()) {
     // ELECTRON: Silent print PDF — no preview!
     console.log(`[Print] Silent printing PDF ${fileName} via Electron`);
-    const result = await window.electronAPI.silentPrintPDF(base64, printerName);
+    const result = await window.electronAPI.silentPrintPDF(base64, printerName, printOptions);
     return result;
   } else {
     // BROWSER FALLBACK: Open PDF in new window and print

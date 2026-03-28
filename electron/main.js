@@ -67,7 +67,7 @@ function createWindow() {
 // ========================
 // SILENT PRINT (HTML content)
 // ========================
-ipcMain.handle('silent-print', async (event, { htmlContent, printerName }) => {
+ipcMain.handle('silent-print', async (event, { htmlContent, printerName, printOptions = {} }) => {
   return new Promise((resolve, reject) => {
     try {
       printWindow = new BrowserWindow({
@@ -87,7 +87,10 @@ ipcMain.handle('silent-print', async (event, { htmlContent, printerName }) => {
           silent: true,
           printBackground: true,
           margins: { marginType: 'default' },
-          pageSize: 'A4'
+          pageSize: 'A4',
+          copies: printOptions.copies || 1,
+          color: printOptions.color !== false,
+          duplexMode: printOptions.duplexMode || 'simplex'
         };
         if (printerName) opts.deviceName = printerName;
 
@@ -116,7 +119,7 @@ ipcMain.handle('silent-print', async (event, { htmlContent, printerName }) => {
 // ========================
 // SILENT PRINT (PDF)
 // ========================
-ipcMain.handle('silent-print-pdf', async (event, { pdfBase64, printerName }) => {
+ipcMain.handle('silent-print-pdf', async (event, { pdfBase64, printerName, printOptions = {} }) => {
   return new Promise((resolve, reject) => {
     try {
       printWindow = new BrowserWindow({
@@ -138,7 +141,10 @@ ipcMain.handle('silent-print-pdf', async (event, { pdfBase64, printerName }) => 
             silent: true,
             printBackground: true,
             margins: { marginType: 'default' },
-            pageSize: 'A4'
+            pageSize: 'A4',
+            copies: printOptions.copies || 1,
+            color: printOptions.color !== false,
+            duplexMode: printOptions.duplexMode || 'simplex'
           };
           if (printerName) opts.deviceName = printerName;
 

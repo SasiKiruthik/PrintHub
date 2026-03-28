@@ -5,6 +5,7 @@ import {
   sha256
 } from "../utils/crypto";
 import { printDecryptedFile } from "../utils/printHandler";
+import { QRCodeCanvas } from "qrcode.react";
 
 // Check if running inside Electron
 const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
@@ -20,6 +21,11 @@ export default function ShopDashboard() {
   const [printers, setPrinters] = useState([]);
   const [selectedPrinter, setSelectedPrinter] = useState("");
   const [isPolling, setIsPolling] = useState(false);
+  
+  // Custom Print Settings
+  const [printCopies, setPrintCopies] = useState(1);
+  const [printColor, setPrintColor] = useState(true);
+  const [printDuplex, setPrintDuplex] = useState("simplex"); // simplex, shortEdge, longEdge
 
   const pollIntervalRef = useRef(null);
 
@@ -160,7 +166,13 @@ export default function ShopDashboard() {
         throw new Error("SECURITY BLOCK: No physical hardware printer selected. Virtual 'Save to PDF' printers are disabled to ensure the document cannot be saved digitally.");
       }
 
-      const result = await printDecryptedFile(decrypted, jobData.fileName, selectedPrinter);
+      const printOptions = {
+        copies: Number(printCopies),
+        color: Boolean(printColor),
+        duplexMode: printDuplex
+      };
+
+      const result = await printDecryptedFile(decrypted, jobData.fileName, selectedPrinter, printOptions);
 
       // Delete job from server after successful print
       try {
@@ -228,30 +240,44 @@ export default function ShopDashboard() {
               Student Connection URL
             </h3>
           </div>
-          {networkInfo.ips.map((ip, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', gap: '10px',
-              marginBottom: i < networkInfo.ips.length - 1 ? '8px' : 0
-            }}>
-              <code style={{
-                flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-sm)',
-                background: 'var(--bg-input)', fontFamily: 'monospace',
-                fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)'
-              }}>
-                https://{ip.address}:{networkInfo.port}
-              </code>
-              <button className="btn btn-ghost" style={{ padding: '10px 14px', fontSize: '0.8125rem' }}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(`https://${ip.address}:${networkInfo.port}`);
-                    updateStatus("URL copied!", "success");
-                  } catch { }
-                }}>📋</button>
-            </div>
-          ))}
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
-            Students open this secure URL in Chrome and click "Advanced → Proceed"
-          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {networkInfo.ips.map((ip, i) => {
+              const connectUrl = `https://${ip.address}:${networkInfo.port}`;
+              return (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: '16px',
+                  background: 'rgba(0,0,0,0.15)', padding: '12px',
+                  borderRadius: 'var(--radius-md)'
+                }}>
+                  <div style={{ background: '#fff', padding: '6px', borderRadius: '8px', flexShrink: 0 }}>
+                    <QRCodeCanvas value={connectUrl} size={64} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '6px' }}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <code style={{
+                        flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                        background: 'var(--bg-input)', fontFamily: 'monospace',
+                        fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)',
+                        wordBreak: 'break-all'
+                      }}>
+                        {connectUrl}
+                      </code>
+                      <button className="btn btn-ghost" style={{ padding: '8px 12px', fontSize: '0.8125rem' }}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(connectUrl);
+                            updateStatus("URL copied!", "success");
+                          } catch { }
+                        }}>📋</button>
+                    </div>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Students can scan this QR code or type the URL to upload securely.
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -401,6 +427,53 @@ export default function ShopDashboard() {
                   setPasscodeInput(text.trim().replace(/\D/g, '').slice(0, 6));
                 } catch { }
               }}>📋 Paste</button>
+          </div>
+
+          {/* PRINT SETTINGS */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px',
+            marginBottom: '1.25rem', background: 'rgba(0,0,0,0.2)',
+            padding: '12px', borderRadius: 'var(--radius-sm)'
+          }}>
+            {/* Copies */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Copies</label>
+              <input 
+                type="number" 
+                className="input" 
+                min="1" max="99"
+                value={printCopies} 
+                onChange={(e) => setPrintCopies(e.target.value)}
+                style={{ height: '36px', fontSize: '0.875rem' }}
+              />
+            </div>
+            {/* Color */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Color</label>
+              <select 
+                className="input" 
+                value={printColor ? "true" : "false"} 
+                onChange={(e) => setPrintColor(e.target.value === "true")}
+                style={{ height: '36px', fontSize: '0.875rem' }}
+              >
+                <option value="true">Color</option>
+                <option value="false">Black & White</option>
+              </select>
+            </div>
+            {/* Sides */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Sides</label>
+              <select 
+                className="input" 
+                value={printDuplex} 
+                onChange={(e) => setPrintDuplex(e.target.value)}
+                style={{ height: '36px', fontSize: '0.875rem' }}
+              >
+                <option value="simplex">Single Sided</option>
+                <option value="longEdge">Double (Flip on Long Edge)</option>
+                <option value="shortEdge">Double (Flip on Short Edge)</option>
+              </select>
+            </div>
           </div>
 
           <button
